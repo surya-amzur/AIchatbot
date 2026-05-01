@@ -5,6 +5,8 @@ Thumbs.db
 
 # Secrets
 .env
+.env.example
+.copilot/
 
 # Python
 __pycache__/

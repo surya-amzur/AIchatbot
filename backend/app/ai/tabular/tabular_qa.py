@@ -1,0 +1,286 @@
+from __future__ import annotations
+
+from io import BytesIO
+from pathlib import Path
+import json
+import re
+import uuid
+
+import chromadb
+from chromadb.api.models.Collection import Collection
+import gspread
+import pandas as pd
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.ai.chains.chat_chain import chat_chain
+from app.ai.llm import embeddings
+from app.core.config import ROOT_DIR, settings
+from app.models.message import Message
+from app.models.user import User
+from app.services.chat_service import _build_memory_messages, get_or_create_thread, get_thread_messages
+
+
+MAX_TABULAR_CONTEXT_CHARS = 12000
+MAX_ROWS_TO_INDEX = 3000
+
+
+class TabularServiceError(Exception):
+    pass
+
+
+_chroma_client: chromadb.ClientAPI | None = None
+
+
+def _resolve_chroma_dir() -> Path:
+    target = settings.chroma_persist_dir or "./chroma_db"
+    path = Path(target)
+    if not path.is_absolute():
+        path = ROOT_DIR / path
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def get_chroma_client() -> chromadb.ClientAPI:
+    global _chroma_client
+    if _chroma_client is None:
+        _chroma_client = chromadb.PersistentClient(path=str(_resolve_chroma_dir()))
+    return _chroma_client
+
+
+def _user_collection_name(user_id: uuid.UUID) -> str:
+    return f"tabular_user_{str(user_id).replace('-', '_')}"
+
+
+def _user_collection(user_id: uuid.UUID) -> Collection:
+    client = get_chroma_client()
+    return client.get_or_create_collection(
+        name=_user_collection_name(user_id), metadata={"hnsw:space": "cosine"}
+    )
+
+
+def _normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    cleaned = df.copy()
+    cleaned = cleaned.dropna(how="all")
+    cleaned.columns = [str(col).strip() or f"col_{idx}" for idx, col in enumerate(cleaned.columns)]
+    return cleaned.fillna("")
+
+
+def _dataframe_rows_as_text(df: pd.DataFrame) -> list[str]:
+    texts: list[str] = []
+    for row_idx, row in enumerate(df.to_dict(orient="records"), start=1):
+        pairs = [f"{key}={row.get(key, '')}" for key in row.keys()]
+        texts.append(f"row {row_idx}: " + "; ".join(pairs))
+    return texts
+
+
+def _parse_google_service_account_json() -> dict:
+    raw = (settings.google_service_account_json or "").strip()
+    if not raw:
+        raise TabularServiceError("GOOGLE_SERVICE_ACCOUNT_JSON is not configured.")
+
+    if raw.startswith("{"):
+        return json.loads(raw)
+
+    path = Path(raw)
+    if not path.is_absolute():
+        path = ROOT_DIR / path
+    if not path.exists():
+        raise TabularServiceError("GOOGLE_SERVICE_ACCOUNT_JSON path does not exist.")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _extract_sheet_key(spreadsheet: str) -> str:
+    value = spreadsheet.strip()
+    if not value:
+        raise TabularServiceError("Spreadsheet URL or key is required.")
+
+    if "/spreadsheets/d/" in value:
+        match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", value)
+        if match:
+            return match.group(1)
+        raise TabularServiceError("Could not parse Google Sheet key from URL.")
+    return value
+
+
+def _where_for_document_ids(document_ids: list[str] | None) -> dict | None:
+    if not document_ids:
+        return None
+    return {"document_id": {"$in": document_ids}}
+
+
+def _store_dataframe_in_chroma(
+    current_user: User,
+    df: pd.DataFrame,
+    source_name: str,
+    source_type: str,
+    thread_id: uuid.UUID | None,
+) -> tuple[str, int, list[str]]:
+    normalized = _normalize_dataframe(df)
+    if normalized.empty:
+        raise TabularServiceError("The provided tabular data is empty.")
+
+    limited = normalized.head(MAX_ROWS_TO_INDEX)
+    row_texts = _dataframe_rows_as_text(limited)
+    vectors = embeddings.embed_documents(row_texts)
+    document_id = str(uuid.uuid4())
+
+    collection = _user_collection(current_user.id)
+    ids = [f"{document_id}:{idx}" for idx in range(len(row_texts))]
+    metadatas = [
+        {
+            "document_id": document_id,
+            "source_name": source_name,
+            "source_type": source_type,
+            "row_index": idx + 1,
+            "thread_id": str(thread_id) if thread_id else "",
+            "user_id": str(current_user.id),
+        }
+        for idx in range(len(row_texts))
+    ]
+
+    collection.add(ids=ids, documents=row_texts, embeddings=vectors, metadatas=metadatas)
+    return document_id, len(row_texts), [str(col) for col in limited.columns]
+
+
+async def ingest_excel_for_user(
+    current_user: User,
+    file_name: str,
+    file_bytes: bytes,
+    thread_id: uuid.UUID | None = None,
+) -> tuple[str, int, list[str]]:
+    try:
+        df = pd.read_excel(BytesIO(file_bytes))
+    except Exception as exc:
+        raise TabularServiceError(f"Failed to parse Excel file: {exc}") from exc
+
+    return _store_dataframe_in_chroma(
+        current_user=current_user,
+        df=df,
+        source_name=file_name,
+        source_type="excel",
+        thread_id=thread_id,
+    )
+
+
+async def ingest_gsheet_for_user(
+    current_user: User,
+    spreadsheet: str,
+    worksheet: str | None = None,
+    thread_id: uuid.UUID | None = None,
+) -> tuple[str, int, list[str], str]:
+    creds = _parse_google_service_account_json()
+    key = _extract_sheet_key(spreadsheet)
+
+    try:
+        client = gspread.service_account_from_dict(creds)
+        book = client.open_by_key(key)
+        sheet = book.worksheet(worksheet) if worksheet else book.sheet1
+        rows = sheet.get_all_records()
+    except Exception as exc:
+        raise TabularServiceError(f"Failed to read Google Sheet: {exc}") from exc
+
+    df = pd.DataFrame(rows)
+    source_name = f"{book.title}:{sheet.title}"
+
+    doc_id, row_count, columns = _store_dataframe_in_chroma(
+        current_user=current_user,
+        df=df,
+        source_name=source_name,
+        source_type="gsheet",
+        thread_id=thread_id,
+    )
+    return doc_id, row_count, columns, source_name
+
+
+def retrieve_tabular_context(
+    current_user: User,
+    question: str,
+    document_ids: list[str] | None,
+    top_k: int,
+) -> tuple[str, list[dict[str, str | int]]]:
+    collection = _user_collection(current_user.id)
+    query_vec = embeddings.embed_query(question)
+
+    results = collection.query(
+        query_embeddings=[query_vec],
+        n_results=top_k,
+        where=_where_for_document_ids(document_ids),
+    )
+
+    documents = (results.get("documents") or [[]])[0]
+    metadatas = (results.get("metadatas") or [[]])[0]
+
+    citations: list[dict[str, str | int]] = []
+    snippets: list[str] = []
+    for doc, meta in zip(documents, metadatas):
+        if not meta:
+            continue
+        document_id = str(meta.get("document_id", ""))
+        source_name = str(meta.get("source_name", "tabular-source"))
+        row_index = int(meta.get("row_index", 0) or 0)
+        citations.append(
+            {
+                "document_id": document_id,
+                "source_name": source_name,
+                "row_index": row_index,
+            }
+        )
+        snippets.append(f"[{source_name} row {row_index}] {doc}")
+
+    context = "\n\n".join(snippets)[:MAX_TABULAR_CONTEXT_CHARS]
+    return context, citations
+
+
+async def answer_tabular_question(
+    db: AsyncSession,
+    current_user: User,
+    question: str,
+    thread_id: uuid.UUID | None,
+    document_ids: list[str],
+    top_k: int,
+) -> tuple[uuid.UUID, str, list[dict[str, str | int]]]:
+    normalized_question = " ".join(question.split())
+    if not normalized_question:
+        raise TabularServiceError("Question cannot be empty.")
+
+    context, citations = retrieve_tabular_context(current_user, normalized_question, document_ids, top_k)
+    if not context:
+        raise TabularServiceError("No relevant tabular context found. Upload Excel/Sheet data first.")
+
+    thread = await get_or_create_thread(db, current_user.id, thread_id, normalized_question)
+
+    user_msg = Message(
+        user_id=current_user.id,
+        thread_id=thread.id,
+        role="user",
+        content=normalized_question,
+        attachments=[],
+    )
+    db.add(user_msg)
+    await db.commit()
+
+    prior_messages = await get_thread_messages(db, current_user.id, thread.id)
+    memory = _build_memory_messages(prior_messages[:-1])
+
+    answer = await chat_chain.ainvoke(
+        {
+            "history": memory,
+            "message": normalized_question,
+            "attachment_context": (
+                "Tabular context from uploaded spreadsheets and Google Sheets:\n" + context
+            ),
+        },
+        config={"metadata": {"user_email": current_user.email, "tabular_qa": True}},
+    )
+
+    assistant_msg = Message(
+        user_id=current_user.id,
+        thread_id=thread.id,
+        role="assistant",
+        content=str(answer),
+        attachments=[],
+    )
+    db.add(assistant_msg)
+    await db.commit()
+
+    return thread.id, str(answer), citations

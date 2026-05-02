@@ -1,11 +1,21 @@
 import axios from "axios";
 
 import type {
+  Attachment,
   ChatHistoryResponse,
   ChatThreadsResponse,
+  ImageGenerateResponse,
+  ImageRuleValidationResponse,
   LoginSuccessResponse,
   ManualLoginPayload,
   ManualSignupPayload,
+  Nl2SqlQueryResponse,
+  Nl2SqlSchemaResponse,
+  RagQueryResponse,
+  RagUploadResponse,
+  TabularQueryResponse,
+  TabularUploadExcelResponse,
+  TabularUploadGSheetResponse,
   User,
 } from "../types";
 
@@ -38,9 +48,153 @@ export async function getChatThreads(): Promise<ChatThreadsResponse> {
   return response.data;
 }
 
-export async function getHistory(threadId: string): Promise<ChatHistoryResponse> {
+export async function getHistory(threadId?: string | null): Promise<ChatHistoryResponse> {
   const response = await apiClient.get<ChatHistoryResponse>("/api/chat/history", {
-    params: { thread_id: threadId },
+    params: threadId ? { thread_id: threadId } : undefined,
+  });
+  return response.data;
+}
+
+export async function renameThread(threadId: string, title: string): Promise<void> {
+  await apiClient.patch(`/api/chat/threads/${threadId}`, { title });
+}
+
+export async function deleteThread(threadId: string): Promise<void> {
+  await apiClient.delete(`/api/chat/threads/${threadId}`);
+}
+
+export async function uploadAttachment(file: File): Promise<Attachment> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await apiClient.post<{ attachment: Attachment }>("/api/chat/upload", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+  });
+  return response.data.attachment;
+}
+
+export async function uploadAttachments(files: File[]): Promise<Attachment[]> {
+  if (!files.length) {
+    return [];
+  }
+  const uploaded = await Promise.all(files.map((file) => uploadAttachment(file)));
+  return uploaded;
+}
+
+export async function generateImage(prompt: string, threadId: string | null): Promise<ImageGenerateResponse> {
+  const response = await apiClient.post<ImageGenerateResponse>("/api/chat/generate-image", {
+    prompt,
+    thread_id: threadId,
+  });
+  return response.data;
+}
+
+export async function uploadPdfForRag(file: File, threadId: string | null): Promise<RagUploadResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (threadId) {
+    formData.append("thread_id", threadId);
+  }
+  const response = await apiClient.post<RagUploadResponse>("/api/rag/upload", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+  });
+  return response.data;
+}
+
+export async function queryRag(
+  question: string,
+  threadId: string | null,
+  documentIds: string[],
+  topK = 4,
+): Promise<RagQueryResponse> {
+  const response = await apiClient.post<RagQueryResponse>("/api/rag/query", {
+    question,
+    thread_id: threadId,
+    document_ids: documentIds,
+    top_k: topK,
+  });
+  return response.data;
+}
+
+export async function getNl2SqlSchema(): Promise<Nl2SqlSchemaResponse> {
+  const response = await apiClient.get<Nl2SqlSchemaResponse>("/api/nl2sql/schema");
+  return response.data;
+}
+
+export async function queryNl2Sql(
+  question: string,
+  maxRows?: number,
+): Promise<Nl2SqlQueryResponse> {
+  const response = await apiClient.post<Nl2SqlQueryResponse>("/api/nl2sql/query", {
+    question,
+    max_rows: maxRows,
+  });
+  return response.data;
+}
+
+export async function uploadExcelForTabularQa(
+  file: File,
+  threadId: string | null,
+): Promise<TabularUploadExcelResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (threadId) {
+    formData.append("thread_id", threadId);
+  }
+  const response = await apiClient.post<TabularUploadExcelResponse>("/api/tabular/upload-excel", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+  });
+  return response.data;
+}
+
+export async function uploadGSheetForTabularQa(
+  spreadsheet: string,
+  worksheet: string | null,
+  threadId: string | null,
+): Promise<TabularUploadGSheetResponse> {
+  const response = await apiClient.post<TabularUploadGSheetResponse>("/api/tabular/upload-gsheet", {
+    spreadsheet,
+    worksheet: worksheet || null,
+    thread_id: threadId,
+  });
+  return response.data;
+}
+
+export async function queryTabularQa(
+  question: string,
+  threadId: string | null,
+  documentIds: string[],
+  topK = 6,
+): Promise<TabularQueryResponse> {
+  const response = await apiClient.post<TabularQueryResponse>("/api/tabular/query", {
+    question,
+    thread_id: threadId,
+    document_ids: documentIds,
+    top_k: topK,
+  });
+  return response.data;
+}
+
+export async function validateImageRules(
+  file: File,
+  rulesText: string,
+  threadId: string | null,
+): Promise<ImageRuleValidationResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("rules_text", rulesText);
+  if (threadId) {
+    formData.append("thread_id", threadId);
+  }
+  const response = await apiClient.post<ImageRuleValidationResponse>("/api/image-rules/validate", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
   });
   return response.data;
 }
@@ -48,6 +202,7 @@ export async function getHistory(threadId: string): Promise<ChatHistoryResponse>
 export async function sendMessageStream(
   message: string,
   threadId: string | null,
+  attachments: Attachment[],
   onChunk: (chunk: string) => void,
 ): Promise<void> {
   const response = await fetch(`${apiClient.defaults.baseURL}/api/chat/send`, {
@@ -56,7 +211,7 @@ export async function sendMessageStream(
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ message, thread_id: threadId }),
+    body: JSON.stringify({ message, thread_id: threadId, attachments }),
   });
 
   if (!response.ok || !response.body) {

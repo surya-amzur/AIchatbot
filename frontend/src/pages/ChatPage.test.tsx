@@ -57,6 +57,16 @@ vi.mock("../hooks/useChat", () => ({
     mutateAsync: vi.fn(),
     isPending: false,
   }),
+  useRenameThreadMutation: () => ({
+    mutateAsync: vi.fn(),
+  }),
+  useDeleteThreadMutation: () => ({
+    mutateAsync: vi.fn(),
+  }),
+  useGenerateImageMutation: () => ({
+    mutateAsync: vi.fn(),
+    isPending: false,
+  }),
 }));
 
 describe("ChatPage", () => {

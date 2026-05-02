@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:5173"
 
     chroma_persist_dir: str = ""
+    nl2sql_allowed_tables: str = "messages,chat_threads"
+    nl2sql_max_rows: int = 100
 
     google_service_account_json: str = ""
 

@@ -4,6 +4,7 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 
 import type { Message } from "../../types";
+import { apiClient } from "../../lib/api";
 
 
 type MessageListProps = {
@@ -11,6 +12,15 @@ type MessageListProps = {
 };
 
 function MessageList({ messages }: MessageListProps) {
+  const baseUrl = apiClient.defaults.baseURL ?? "";
+
+  const resolveUrl = (url: string) => {
+    if (url.startsWith("http://") || url.startsWith("https://")) {
+      return url;
+    }
+    return `${baseUrl}${url}`;
+  };
+
   return (
     <div className="flex h-full flex-col gap-3 overflow-y-auto pr-2">
       {messages.map((msg) => (
@@ -28,6 +38,44 @@ function MessageList({ messages }: MessageListProps) {
               {msg.content}
             </ReactMarkdown>
           </div>
+
+          {msg.attachments?.length ? (
+            <div className="mt-3 space-y-2 rounded-xl border border-slate-200/60 bg-white/40 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide opacity-70">Attachments</p>
+              {msg.attachments.map((attachment) => {
+                const resolvedUrl = resolveUrl(attachment.url);
+                const isImage = attachment.mime_type.startsWith("image/");
+                const isVideo = attachment.mime_type.startsWith("video/");
+
+                return (
+                  <div key={`${attachment.url}-${attachment.file_name}`} className="space-y-2">
+                    <a
+                      href={resolvedUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block text-xs font-medium underline"
+                    >
+                      {attachment.file_name} ({Math.max(1, Math.round(attachment.size_bytes / 1024))} KB)
+                    </a>
+                    {isImage ? (
+                      <img
+                        src={resolvedUrl}
+                        alt={attachment.file_name}
+                        className="max-h-64 w-auto rounded-lg border border-slate-200"
+                      />
+                    ) : null}
+                    {isVideo ? (
+                      <video
+                        controls
+                        src={resolvedUrl}
+                        className="max-h-64 w-full rounded-lg border border-slate-200"
+                      />
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
         </article>
       ))}
     </div>

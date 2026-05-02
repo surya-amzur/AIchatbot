@@ -45,6 +45,18 @@ def _ensure_legacy_thread_schema(sync_conn: sa.Connection) -> None:
         column_type = "UUID" if sync_conn.dialect.name == "postgresql" else "CHAR(32)"
         sync_conn.execute(sa.text(f"ALTER TABLE messages ADD COLUMN thread_id {column_type}"))
 
+    if "attachments" not in message_columns:
+        if sync_conn.dialect.name == "postgresql":
+            sync_conn.execute(
+                sa.text(
+                    "ALTER TABLE messages ADD COLUMN attachments JSONB NOT NULL DEFAULT '[]'::jsonb"
+                )
+            )
+        else:
+            sync_conn.execute(
+                sa.text("ALTER TABLE messages ADD COLUMN attachments JSON NOT NULL DEFAULT '[]'")
+            )
+
     users = sync_conn.execute(
         sa.text("SELECT DISTINCT user_id FROM messages WHERE user_id IS NOT NULL")
     ).fetchall()
@@ -81,7 +93,7 @@ def _ensure_legacy_thread_schema(sync_conn: sa.Connection) -> None:
                 """
                 UPDATE messages
                 SET thread_id = :thread_id
-                WHERE user_id = :user_id AND (thread_id IS NULL OR thread_id = '')
+                WHERE user_id = :user_id AND thread_id IS NULL
                 """
             ),
             {

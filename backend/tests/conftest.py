@@ -15,6 +15,10 @@ from sqlalchemy.pool import StaticPool
 
 from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
+from app.api.image_rules import router as image_rules_router
+from app.api.nl2sql import router as nl2sql_router
+from app.api.rag import router as rag_router
+from app.api.tabular import router as tabular_router
 from app.core.config import settings
 from app.db.base import Base
 from app.db.session import get_db
@@ -42,6 +46,10 @@ async def test_app(test_session_factory: async_sessionmaker[AsyncSession]) -> Fa
     app = FastAPI()
     app.include_router(auth_router)
     app.include_router(chat_router)
+    app.include_router(image_rules_router)
+    app.include_router(nl2sql_router)
+    app.include_router(rag_router)
+    app.include_router(tabular_router)
 
     async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
         async with test_session_factory() as session:

@@ -254,7 +254,12 @@ def retrieve_tabular_context(
         )
         snippets.append(f"[{source_name} row {row_index}] {doc}")
 
-    context = "\n\n".join(snippets)[:MAX_TABULAR_CONTEXT_CHARS]
+    # Expand context limit for aggregate queries to ensure LLM sees all data
+    context_limit = MAX_TABULAR_CONTEXT_CHARS
+    if _is_aggregate_query(question):
+        context_limit = 100000  # Allow much larger context for aggregates
+
+    context = "\n\n".join(snippets)[:context_limit]
     return context, citations
 
 

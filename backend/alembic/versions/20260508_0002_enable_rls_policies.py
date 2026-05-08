@@ -20,6 +20,15 @@ def upgrade() -> None:
     op.execute("ALTER TABLE public.chat_threads ENABLE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY")
 
+    # Remove high-risk table privileges; app access should flow through RLS policies.
+    op.execute("REVOKE TRUNCATE, TRIGGER, REFERENCES ON TABLE public.users FROM anon, authenticated")
+    op.execute(
+        "REVOKE TRUNCATE, TRIGGER, REFERENCES ON TABLE public.chat_threads FROM anon, authenticated"
+    )
+    op.execute(
+        "REVOKE TRUNCATE, TRIGGER, REFERENCES ON TABLE public.messages FROM anon, authenticated"
+    )
+
     # users policies
     op.execute(
         """
@@ -247,6 +256,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.execute("GRANT TRUNCATE, TRIGGER, REFERENCES ON TABLE public.messages TO anon, authenticated")
+    op.execute(
+        "GRANT TRUNCATE, TRIGGER, REFERENCES ON TABLE public.chat_threads TO anon, authenticated"
+    )
+    op.execute("GRANT TRUNCATE, TRIGGER, REFERENCES ON TABLE public.users TO anon, authenticated")
+
     op.execute("DROP POLICY IF EXISTS messages_delete_own ON public.messages")
     op.execute("DROP POLICY IF EXISTS messages_update_own ON public.messages")
     op.execute("DROP POLICY IF EXISTS messages_insert_own ON public.messages")

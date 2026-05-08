@@ -223,26 +223,23 @@ def _is_count_query(question: str) -> bool:
 
 def _compute_python_aggregates(question: str, snippets: list[str]) -> str | None:
     """
-    For count-type questions, extract filter terms from the question,
-    count matching rows in Python, and return a verified fact string.
-    This prevents the LLM from miscounting large datasets.
+    For count-type questions, count matching rows in Python by looking for
+    key=value patterns in the row text (e.g., 'priority=high').
+    This is far more accurate than asking the LLM to count.
     """
     if not _is_count_query(question):
         return None
 
-    q_lower = question.lower()
-
-    # Extract quoted terms or key value-like phrases from the question
-    # e.g., "how many high priority bugs" → look for rows containing "high priority"
-    # Strategy: find significant noun phrases after "how many" / "count of"
-    # We'll extract 2-4 word candidate filters and test which ones match rows
     import re
 
-    # Remove common stop words to find the filter terms
+    q_lower = question.lower()
+
+    # Remove stop words to isolate filter terms
     stop_words = {
         "how", "many", "are", "there", "in", "the", "sheet", "spreadsheet",
         "data", "table", "of", "a", "an", "is", "what", "total", "count",
         "number", "show", "me", "give", "find", "list", "all", "with",
+        "bugs", "issues", "items", "rows", "entries", "records", "tasks", "tickets",
     }
     words = re.findall(r"[a-zA-Z]+", q_lower)
     filter_words = [w for w in words if w not in stop_words]
@@ -250,30 +247,43 @@ def _compute_python_aggregates(question: str, snippets: list[str]) -> str | None
     if not filter_words:
         return None
 
-    # For each snippet (row), check if it contains ALL filter terms
-    filter_terms = filter_words  # e.g. ["high", "priority", "bugs"]
-    matching_count = sum(
-        1 for snippet in snippets
-        if all(term in snippet.lower() for term in filter_terms)
-    )
+    # Strategy 1: look for key=value patterns from adjacent word pairs.
+    # Row text format is like: "Priority=High; Status=Open; ..."
+    # "how many high priority" → try "priority=high" pattern
+    best_count = 0
+    best_label = ""
 
-    if matching_count == 0:
-        # Try with just the most distinctive terms (skip generic words like "bugs", "issues")
-        generic = {"bugs", "issues", "items", "rows", "entries", "records", "tasks", "tickets"}
-        core_terms = [w for w in filter_words if w not in generic]
-        if core_terms and core_terms != filter_terms:
-            matching_count = sum(
-                1 for snippet in snippets
-                if all(term in snippet.lower() for term in core_terms)
-            )
-            filter_terms = core_terms
+    # Generate bigram key=value candidates from the filter words
+    # Try all permutations of adjacent pairs as "word_a=word_b"
+    for i in range(len(filter_words)):
+        for j in range(len(filter_words)):
+            if i == j:
+                continue
+            pattern = f"{filter_words[i]}={filter_words[j]}"
+            count = sum(1 for s in snippets if pattern in s.lower())
+            if count > best_count:
+                best_count = count
+                best_label = f"{filter_words[j]} {filter_words[i]}"  # e.g. "high priority"
 
-    if matching_count > 0:
-        filter_display = " ".join(filter_terms)
+    # Strategy 2: if no key=value match found, try consecutive phrase matching
+    if best_count == 0 and len(filter_words) >= 2:
+        phrase = " ".join(filter_words)
+        best_count = sum(1 for s in snippets if phrase in s.lower())
+        best_label = phrase
+
+    # Strategy 3: fallback — all individual filter words present in snippet
+    if best_count == 0:
+        best_count = sum(
+            1 for s in snippets
+            if all(w in s.lower() for w in filter_words)
+        )
+        best_label = " ".join(filter_words)
+
+    if best_count > 0:
         return (
-            f"[VERIFIED PYTHON COUNT] Rows matching '{filter_display}': {matching_count}. "
-            f"This count was computed programmatically from {len(snippets)} total rows and is accurate. "
-            f"Use this exact number in your answer."
+            f"[VERIFIED PYTHON COUNT] Rows matching '{best_label}': {best_count}. "
+            f"This count was computed programmatically from {len(snippets)} total rows "
+            f"and is accurate. Use this exact number in your answer."
         )
 
     return None

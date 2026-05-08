@@ -223,10 +223,10 @@ def retrieve_tabular_context(
     collection = _user_collection(current_user.id)
     query_vec = embeddings.embed_query(question)
     
-    # For aggregate queries, retrieve many more rows to ensure completeness
+    # For aggregate queries, retrieve ALL rows to ensure completeness
     effective_top_k = top_k
     if _is_aggregate_query(question):
-        effective_top_k = min(200, MAX_ROWS_TO_INDEX)
+        effective_top_k = MAX_ROWS_TO_INDEX  # Retrieve all indexed rows (up to 3000)
 
     results = collection.query(
         query_embeddings=[query_vec],

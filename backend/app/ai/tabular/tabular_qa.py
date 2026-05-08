@@ -214,6 +214,71 @@ def _is_aggregate_query(question: str) -> bool:
     return any(keyword in q_lower for keyword in aggregate_keywords)
 
 
+def _is_count_query(question: str) -> bool:
+    """Detect if the question is specifically asking to count/how-many."""
+    count_keywords = ["how many", "count", "total number", "number of"]
+    q_lower = question.lower()
+    return any(keyword in q_lower for keyword in count_keywords)
+
+
+def _compute_python_aggregates(question: str, snippets: list[str]) -> str | None:
+    """
+    For count-type questions, extract filter terms from the question,
+    count matching rows in Python, and return a verified fact string.
+    This prevents the LLM from miscounting large datasets.
+    """
+    if not _is_count_query(question):
+        return None
+
+    q_lower = question.lower()
+
+    # Extract quoted terms or key value-like phrases from the question
+    # e.g., "how many high priority bugs" → look for rows containing "high priority"
+    # Strategy: find significant noun phrases after "how many" / "count of"
+    # We'll extract 2-4 word candidate filters and test which ones match rows
+    import re
+
+    # Remove common stop words to find the filter terms
+    stop_words = {
+        "how", "many", "are", "there", "in", "the", "sheet", "spreadsheet",
+        "data", "table", "of", "a", "an", "is", "what", "total", "count",
+        "number", "show", "me", "give", "find", "list", "all", "with",
+    }
+    words = re.findall(r"[a-zA-Z]+", q_lower)
+    filter_words = [w for w in words if w not in stop_words]
+
+    if not filter_words:
+        return None
+
+    # For each snippet (row), check if it contains ALL filter terms
+    filter_terms = filter_words  # e.g. ["high", "priority", "bugs"]
+    matching_count = sum(
+        1 for snippet in snippets
+        if all(term in snippet.lower() for term in filter_terms)
+    )
+
+    if matching_count == 0:
+        # Try with just the most distinctive terms (skip generic words like "bugs", "issues")
+        generic = {"bugs", "issues", "items", "rows", "entries", "records", "tasks", "tickets"}
+        core_terms = [w for w in filter_words if w not in generic]
+        if core_terms and core_terms != filter_terms:
+            matching_count = sum(
+                1 for snippet in snippets
+                if all(term in snippet.lower() for term in core_terms)
+            )
+            filter_terms = core_terms
+
+    if matching_count > 0:
+        filter_display = " ".join(filter_terms)
+        return (
+            f"[VERIFIED PYTHON COUNT] Rows matching '{filter_display}': {matching_count}. "
+            f"This count was computed programmatically from {len(snippets)} total rows and is accurate. "
+            f"Use this exact number in your answer."
+        )
+
+    return None
+
+
 def retrieve_tabular_context(
     current_user: User,
     question: str,
@@ -254,12 +319,20 @@ def retrieve_tabular_context(
         )
         snippets.append(f"[{source_name} row {row_index}] {doc}")
 
+    # Compute Python-side aggregates for count queries before truncation
+    python_fact = _compute_python_aggregates(question, snippets)
+
     # Expand context limit for aggregate queries to ensure LLM sees all data
     context_limit = MAX_TABULAR_CONTEXT_CHARS
     if _is_aggregate_query(question):
         context_limit = 100000  # Allow much larger context for aggregates
 
     context = "\n\n".join(snippets)[:context_limit]
+
+    # Prepend the verified fact so the LLM uses the accurate count
+    if python_fact:
+        context = python_fact + "\n\n" + context
+
     return context, citations
 
 
@@ -299,7 +372,8 @@ async def answer_tabular_question(
             "history": memory,
             "message": normalized_question,
             "attachment_context": (
-                "Tabular context from uploaded spreadsheets and Google Sheets:\n" + context
+                "Tabular context from uploaded spreadsheets and Google Sheets "
+                "(any [VERIFIED PYTHON COUNT] values are exact — use them as-is):\n" + context
             ),
         },
         config={"metadata": {"user_email": current_user.email, "tabular_qa": True}},

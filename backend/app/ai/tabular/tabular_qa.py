@@ -221,20 +221,14 @@ def _is_count_query(question: str) -> bool:
     return any(keyword in q_lower for keyword in count_keywords)
 
 
-def _compute_python_aggregates(question: str, snippets: list[str]) -> str | None:
-    """
-    For count-type questions, count matching rows in Python by looking for
-    key=value patterns in the row text (e.g., 'priority=high').
-    This is far more accurate than asking the LLM to count.
-    """
+def _compute_python_count(question: str, snippets: list[str]) -> tuple[int, str, list[int]] | None:
+    """Compute count answers using deterministic key=value and phrase matching."""
     if not _is_count_query(question):
         return None
 
-    import re
-
     q_lower = question.lower()
 
-    # Remove stop words to isolate filter terms
+    # Remove stop words to isolate filter terms.
     stop_words = {
         "how", "many", "are", "there", "in", "the", "sheet", "spreadsheet",
         "data", "table", "of", "a", "an", "is", "what", "total", "count",
@@ -247,39 +241,54 @@ def _compute_python_aggregates(question: str, snippets: list[str]) -> str | None
     if not filter_words:
         return None
 
-    # Strategy 1: look for key=value patterns from adjacent word pairs.
-    # Row text format is like: "Priority=High; Status=Open; ..."
-    # "how many high priority" → try "priority=high" pattern
-    best_count = 0
     best_label = ""
+    best_indexes: list[int] = []
 
-    # Generate bigram key=value candidates from the filter words
-    # Try all permutations of adjacent pairs as "word_a=word_b"
+    # Strategy 1: key=value patterns from word permutations.
     for i in range(len(filter_words)):
         for j in range(len(filter_words)):
             if i == j:
                 continue
             pattern = f"{filter_words[i]}={filter_words[j]}"
-            count = sum(1 for s in snippets if pattern in s.lower())
-            if count > best_count:
-                best_count = count
-                best_label = f"{filter_words[j]} {filter_words[i]}"  # e.g. "high priority"
+            indexes = [idx for idx, snippet in enumerate(snippets) if pattern in snippet.lower()]
+            if len(indexes) > len(best_indexes):
+                best_indexes = indexes
+                best_label = f"{filter_words[j]} {filter_words[i]}"
 
-    # Strategy 2: if no key=value match found, try consecutive phrase matching
-    if best_count == 0 and len(filter_words) >= 2:
+    # Strategy 2: phrase match.
+    if not best_indexes and len(filter_words) >= 2:
         phrase = " ".join(filter_words)
-        best_count = sum(1 for s in snippets if phrase in s.lower())
-        best_label = phrase
+        indexes = [idx for idx, snippet in enumerate(snippets) if phrase in snippet.lower()]
+        if indexes:
+            best_indexes = indexes
+            best_label = phrase
 
-    # Strategy 3: fallback — all individual filter words present in snippet
-    if best_count == 0:
-        best_count = sum(
-            1 for s in snippets
-            if all(w in s.lower() for w in filter_words)
-        )
-        best_label = " ".join(filter_words)
+    # Strategy 3: all terms present in row.
+    if not best_indexes:
+        indexes = [
+            idx
+            for idx, snippet in enumerate(snippets)
+            if all(word in snippet.lower() for word in filter_words)
+        ]
+        if indexes:
+            best_indexes = indexes
+            best_label = " ".join(filter_words)
 
-    if best_count > 0:
+    if not best_indexes:
+        return None
+
+    return len(best_indexes), best_label, best_indexes
+
+
+def _compute_python_aggregates(question: str, snippets: list[str]) -> str | None:
+    """
+    For count-type questions, count matching rows in Python by looking for
+    key=value patterns in the row text (e.g., 'priority=high').
+    This is far more accurate than asking the LLM to count.
+    """
+    result = _compute_python_count(question, snippets)
+    if result:
+        best_count, best_label, _ = result
         return (
             f"[VERIFIED PYTHON COUNT] Rows matching '{best_label}': {best_count}. "
             f"This count was computed programmatically from {len(snippets)} total rows "
@@ -294,7 +303,7 @@ def retrieve_tabular_context(
     question: str,
     document_ids: list[str] | None,
     top_k: int,
-) -> tuple[str, list[dict[str, str | int]]]:
+) -> tuple[str, list[dict[str, str | int]], int | None, str | None]:
     collection = _user_collection(current_user.id)
     query_vec = embeddings.embed_query(question)
     
@@ -329,8 +338,15 @@ def retrieve_tabular_context(
         )
         snippets.append(f"[{source_name} row {row_index}] {doc}")
 
-    # Compute Python-side aggregates for count queries before truncation
+    # Compute Python-side aggregates for count queries before truncation.
+    count_result = _compute_python_count(question, snippets)
     python_fact = _compute_python_aggregates(question, snippets)
+    python_count: int | None = None
+    python_label: str | None = None
+    if count_result:
+        python_count, python_label, matched_indexes = count_result
+        # For deterministic count answers, cite only matched rows.
+        citations = [citations[idx] for idx in matched_indexes if idx < len(citations)]
 
     # Expand context limit for aggregate queries to ensure LLM sees all data
     context_limit = MAX_TABULAR_CONTEXT_CHARS
@@ -343,7 +359,7 @@ def retrieve_tabular_context(
     if python_fact:
         context = python_fact + "\n\n" + context
 
-    return context, citations
+    return context, citations, python_count, python_label
 
 
 async def answer_tabular_question(
@@ -358,7 +374,9 @@ async def answer_tabular_question(
     if not normalized_question:
         raise TabularServiceError("Question cannot be empty.")
 
-    context, citations = retrieve_tabular_context(current_user, normalized_question, document_ids, top_k)
+    context, citations, python_count, python_label = retrieve_tabular_context(
+        current_user, normalized_question, document_ids, top_k
+    )
     if not context:
         raise TabularServiceError("No relevant tabular context found. Upload Excel/Sheet data first.")
 
@@ -373,6 +391,22 @@ async def answer_tabular_question(
     )
     db.add(user_msg)
     await db.commit()
+
+    # Deterministic path for count queries: bypass LLM answer generation.
+    if _is_count_query(normalized_question) and python_count is not None:
+        label = python_label or "matching rows"
+        deterministic_answer = f"There are {python_count} {label} in the sheet."
+
+        assistant_msg = Message(
+            user_id=current_user.id,
+            thread_id=thread.id,
+            role="assistant",
+            content=deterministic_answer,
+            attachments=[],
+        )
+        db.add(assistant_msg)
+        await db.commit()
+        return thread.id, deterministic_answer, citations
 
     prior_messages = await get_thread_messages(db, current_user.id, thread.id)
     memory = _build_memory_messages(prior_messages[:-1])

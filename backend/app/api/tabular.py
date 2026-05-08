@@ -48,6 +48,11 @@ async def upload_excel_for_qa(
             status_code=400,
             detail={"error": "tabular_upload_failed", "message": str(exc)},
         ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "tabular_upload_failed", "message": str(exc)},
+        ) from exc
 
     return TabularUploadExcelResponse(
         status="ok",
@@ -105,6 +110,12 @@ async def query_tabular(
     except tabular_qa.TabularServiceError as exc:
         raise HTTPException(
             status_code=400,
+            detail={"error": "tabular_query_failed", "message": str(exc)},
+        ) from exc
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
             detail={"error": "tabular_query_failed", "message": str(exc)},
         ) from exc
 

@@ -271,8 +271,16 @@ function ChatPage() {
       setMessages((prev) => [...prev, assistantMessage]);
       setGsheetUrl("");
       setGsheetWorksheet("");
-    } catch {
-      setError("Failed to load Google Sheet for tabular QA.");
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: { message?: string } | string } } };
+      const detail = axiosErr?.response?.data?.detail;
+      const msg =
+        typeof detail === "object" && detail?.message
+          ? detail.message
+          : typeof detail === "string"
+          ? detail
+          : "Failed to load Google Sheet for tabular QA.";
+      setError(msg);
     } finally {
       setTabularBusy(false);
     }
@@ -305,8 +313,16 @@ function ChatPage() {
         setSelectedThreadId(result.thread_id);
         setIsDraftMode(false);
       }
-    } catch {
-      setError("Tabular QA query failed.");
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: { message?: string } | string } } };
+      const detail = axiosErr?.response?.data?.detail;
+      const msg =
+        typeof detail === "object" && detail?.message
+          ? detail.message
+          : typeof detail === "string"
+          ? detail
+          : "Tabular QA query failed.";
+      setError(msg);
     } finally {
       setTabularBusy(false);
     }

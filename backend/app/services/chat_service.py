@@ -24,6 +24,23 @@ MAX_ATTACHMENT_CONTEXT_CHARS = 8000
 MAX_ATTACHMENT_FILE_CHARS = 2000
 
 
+def _build_vision_system_prompt() -> str:
+    return (
+        "You are a helpful AI assistant. Keep responses concise and clear. "
+        "Answer questions using your training knowledge. "
+        "However, your training data has a knowledge cutoff and may be outdated. "
+        "For any question about a specific person's current role, title, or position "
+        "(e.g. who is the CEO, founder, president, director of a company), "
+        "do NOT state a name as a definitive fact. "
+        "Instead, say something like: 'As of my training data, [name] held this role, "
+        "but this may have changed. Please verify on the official website or LinkedIn.' "
+        "If the user provides context via uploaded files or attachments, always use that "
+        "as the authoritative source instead of training knowledge. "
+        "Do not invent statistics, citations, or facts you are not confident about. "
+        "This assistant does not browse the web in real time unless a source is provided in context."
+    )
+
+
 class ChatServiceError(Exception):
     pass
 
@@ -411,16 +428,7 @@ async def stream_chat_response(
             messages = [
                 {
                     "role": "system",
-                    "content": (
-                        "You are a helpful AI assistant. Keep responses concise and clear. "
-                        "Answer questions using your training knowledge when relevant. "
-                        "For facts that could change over time (people's roles, titles, company leadership, live data), "
-                        "give your best answer and clearly note it may be outdated — for example: "
-                        "'Based on my training data, X held this role, but please verify from an official source as this may have changed.' "
-                        "If the user provides context via uploaded files or attachments, always prefer that over training knowledge. "
-                        "Do not invent names, statistics, or citations you are not confident about. "
-                        "This assistant does not browse the web in real time unless a source is provided."
-                    ),
+                    "content": _build_vision_system_prompt(),
                 },
                 *_memory_to_openai_messages(memory),
                 {"role": "user", "content": vision_parts},

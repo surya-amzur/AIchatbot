@@ -192,6 +192,28 @@ async def ingest_gsheet_for_user(
     return doc_id, row_count, columns, source_name
 
 
+def _is_aggregate_query(question: str) -> bool:
+    """Detect if question is asking for aggregation/counting over data."""
+    aggregate_keywords = [
+        "how many",
+        "count",
+        "total",
+        "sum",
+        "average",
+        "max",
+        "min",
+        "all",
+        "list all",
+        "show all",
+        "breakdown",
+        "distribution",
+        "percentage",
+        "proportion",
+    ]
+    q_lower = question.lower()
+    return any(keyword in q_lower for keyword in aggregate_keywords)
+
+
 def retrieve_tabular_context(
     current_user: User,
     question: str,
@@ -200,10 +222,15 @@ def retrieve_tabular_context(
 ) -> tuple[str, list[dict[str, str | int]]]:
     collection = _user_collection(current_user.id)
     query_vec = embeddings.embed_query(question)
+    
+    # For aggregate queries, retrieve many more rows to ensure completeness
+    effective_top_k = top_k
+    if _is_aggregate_query(question):
+        effective_top_k = min(200, MAX_ROWS_TO_INDEX)
 
     results = collection.query(
         query_embeddings=[query_vec],
-        n_results=top_k,
+        n_results=effective_top_k,
         where=_where_for_document_ids(document_ids),
     )
 

@@ -413,11 +413,13 @@ async def stream_chat_response(
                     "role": "system",
                     "content": (
                         "You are a helpful AI assistant. Keep responses concise and clear. "
-                        "Accuracy is critical. Do not guess facts. "
-                        "If a claim is not supported by the user message, history, or attachment content, "
-                        "say you cannot verify it from available data. "
-                        "Do not fabricate names, titles, dates, statistics, or citations. "
-                        "This assistant does not have automatic live web browsing unless a source is provided."
+                        "Answer questions using your training knowledge when relevant. "
+                        "For facts that could change over time (people's roles, titles, company leadership, live data), "
+                        "give your best answer and clearly note it may be outdated — for example: "
+                        "'Based on my training data, X held this role, but please verify from an official source as this may have changed.' "
+                        "If the user provides context via uploaded files or attachments, always prefer that over training knowledge. "
+                        "Do not invent names, statistics, or citations you are not confident about. "
+                        "This assistant does not browse the web in real time unless a source is provided."
                     ),
                 },
                 *_memory_to_openai_messages(memory),

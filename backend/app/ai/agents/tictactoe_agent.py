@@ -1,31 +1,121 @@
-"""Tic Tac Toe ReAct Agent with MCP Integration.
-
-Project 12 — MCP Integration Swap
-──────────────────────────────────
-
-This agent now uses tools provided by the MCP server module instead of
-hand-written functions. The agent logic, system prompt, and frontend remain
-completely unchanged — only the tool execution source has changed.
-
-Key Architectural Change:
-  Before (Project 11): Agent → Hand-written Python functions in this file
-  After (Project 12):  Agent → MCP Server Module (separate, decoupled, swappable)
-
-This demonstrates the MCP principle: tools can be provided by any compatible
-source (local module, remote server, plugin system) without changing the agent
-implementation.
-"""
+"""Tic Tac Toe ReAct Agent with local in-app tools."""
 from __future__ import annotations
 
-from langchain_core.tools import tool, ToolException
+from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 
 from app.core.config import settings
-# ─── MCP Integration ───────────────────────────────────────────────────────
-# Import game logic from MCP server module
-# In production, this could be replaced with a remote MCP server via ClientSession
-from mcp_servers.tictactoe_mcp import TicTacToeGameLogic
+
+
+class TicTacToeGameLogic:
+    """Pure Tic Tac Toe game logic used by local agent tools."""
+
+    @staticmethod
+    def _normalize_cell(cell):
+        if cell is None or cell == "X" or cell == "O":
+            return cell
+        if isinstance(cell, str):
+            upper = cell.strip().upper()
+            return upper if upper in {"X", "O"} else None
+        if isinstance(cell, dict):
+            for key in ("value", "mark", "cell", "symbol"):
+                if key in cell:
+                    return TicTacToeGameLogic._normalize_cell(cell[key])
+        return None
+
+    @staticmethod
+    def _normalize_board(board: list) -> list:
+        if not isinstance(board, list):
+            return []
+        normalized = [TicTacToeGameLogic._normalize_cell(cell) for cell in board[:9]]
+        if len(normalized) < 9:
+            normalized.extend([None] * (9 - len(normalized)))
+        return normalized
+
+    @staticmethod
+    def validate_board(board: list) -> bool:
+        if not isinstance(board, list):
+            return False
+        board = TicTacToeGameLogic._normalize_board(board)
+        if len(board) != 9:
+            return False
+        for cell in board:
+            if cell not in {None, "X", "O"}:
+                return False
+        x_count = board.count("X")
+        o_count = board.count("O")
+        return x_count == o_count or x_count == o_count + 1
+
+    @staticmethod
+    def get_legal_moves(board: list) -> list[int]:
+        if not isinstance(board, list):
+            return []
+        board = TicTacToeGameLogic._normalize_board(board)
+        if len(board) != 9:
+            return []
+        return [i for i, cell in enumerate(board) if cell is None]
+
+    @staticmethod
+    def describe_board(board: list) -> str:
+        if not isinstance(board, list):
+            return "Invalid board"
+        board = TicTacToeGameLogic._normalize_board(board)
+        if len(board) != 9:
+            return "Invalid board"
+
+        grid = []
+        for i in range(3):
+            row = []
+            for j in range(3):
+                idx = i * 3 + j
+                cell = board[idx]
+                row.append(str(cell) if cell else str(idx))
+            grid.append(" | ".join(row))
+
+        ascii_board = "\n---------\n".join(grid)
+        return f"Board positions (0-8):\n{ascii_board}"
+
+    @staticmethod
+    def check_winner(board: list) -> str | None:
+        if not isinstance(board, list):
+            return None
+        board = TicTacToeGameLogic._normalize_board(board)
+        if len(board) != 9:
+            return None
+
+        lines = [
+            [0, 1, 2], [3, 4, 5], [6, 7, 8],
+            [0, 3, 6], [1, 4, 7], [2, 5, 8],
+            [0, 4, 8], [2, 4, 6],
+        ]
+        for a, b, c in lines:
+            if board[a] and board[a] == board[b] == board[c]:
+                return board[a]
+        return None
+
+    @staticmethod
+    def make_move(board: list, position: int) -> dict:
+        if not isinstance(board, list):
+            return {"success": False, "error": "Invalid board state"}
+        board = TicTacToeGameLogic._normalize_board(board)
+        if len(board) != 9:
+            return {"success": False, "error": "Invalid board state"}
+        if not isinstance(position, int) or position < 0 or position > 8:
+            return {"success": False, "error": f"Invalid position: {position}. Must be 0-8."}
+        if board[position] is not None:
+            return {"success": False, "error": f"Position {position} already occupied"}
+
+        new_board = board.copy()
+        new_board[position] = "O"
+        winner = TicTacToeGameLogic.check_winner(new_board)
+        return {
+            "success": True,
+            "board": new_board,
+            "position": position,
+            "winner": winner,
+            "is_draw": winner is None and all(c is not None for c in new_board),
+        }
 
 
 # System prompt guiding agent strategy
@@ -45,15 +135,15 @@ Be confident and strategic. Think like a pro player.""".strip()
 
 
 def create_tictactoe_agent():
-    """Create and configure ReAct agent for Tic Tac Toe powered by MCP server.
+    """Create and configure ReAct agent for Tic Tac Toe using local tools."""
     
-    The agent's system prompt and logic are IDENTICAL to Project 11.
-    The only difference: tools now come from the MCP server module instead of
-    being defined directly in this file. This demonstrates the MCP principle
-    that tools can be swapped without changing the agent.
-    """
+    # Check if LLM is properly configured
+    if not settings.litellm_proxy_url or not settings.litellm_api_key:
+        raise ValueError(
+            "LiteLLM not configured. Set LITELLM_PROXY_URL and LITELLM_API_KEY environment variables."
+        )
     
-    # Define tools using @tool decorator, delegating to MCP server module
+    # Define local tools using @tool decorator.
     @tool
     def validate_board(board: list) -> bool:
         """Check if the board state is a valid Tic Tac Toe game state (must have equal X and O counts)."""
@@ -78,13 +168,11 @@ def create_tictactoe_agent():
     def make_move(board: list, position: int) -> dict:
         """Place your (O) move on the board at given position (0-8). Returns new board state and game status."""
         result = TicTacToeGameLogic.make_move(board, position)
-        if not result.get("success"):
-            raise ToolException(result.get("error", "Move failed"))
         return result
 
-    # Initialize LLM with LiteLLM proxy
+    # Initialize LLM with LiteLLM proxy using the app-wide configured model.
     llm = ChatOpenAI(
-        model_name="gemini-2.5-flash",
+        model=settings.llm_model,
         temperature=0.3,  # Lower temp for better strategy consistency
         base_url=settings.litellm_proxy_url,
         api_key=settings.litellm_api_key,
@@ -94,8 +182,8 @@ def create_tictactoe_agent():
     # Create tools list
     tools = [validate_board, get_legal_moves, describe_board, check_winner, make_move]
 
-    # Create ReAct agent (system prompt handled through tool descriptions + llm system role)
-    agent_executor = create_react_agent(llm, tools)
+    # Create ReAct agent with explicit system prompt.
+    agent_executor = create_react_agent(llm, tools, prompt=TICTACTOE_SYSTEM_PROMPT)
 
     return agent_executor
 

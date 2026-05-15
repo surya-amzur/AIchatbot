@@ -85,14 +85,14 @@ describe("Tic Tac Toe AI Agent Integration", () => {
     });
   });
 
-  it("should handle MCP tool calls via backend", async () => {
-    logger.info("TicTacToeAgent", "Testing MCP integration via backend API");
+  it("should handle AI tool calls via backend", async () => {
+    logger.info("TicTacToeAgent", "Testing AI agent tool flow via backend API");
 
     try {
       // Simulate API call to /api/tictactoe/move-agent
       const mockRequest = {
         board: [null, null, null, null, "X", null, null, null, null],
-        reasoning: "Testing MCP integration",
+        reasoning: "Testing AI agent integration",
       };
 
       logger.info("TicTacToeAgent", "Sending request to backend", mockRequest);
@@ -109,11 +109,11 @@ describe("Tic Tac Toe AI Agent Integration", () => {
       expect(mockResponse.success).toBe(true);
       expect(mockResponse.board[0]).toBe("O");
 
-      logger.success("TicTacToeAgent", "✅ MCP tool execution successful", {
+      logger.success("TicTacToeAgent", "✅ AI tool execution successful", {
         movePosition: mockResponse.move,
         reasoning: mockResponse.reasoning,
         newBoardState: mockResponse.board,
-        mcpTools: [
+        tools: [
           "validate_board",
           "get_legal_moves",
           "describe_board",
@@ -122,18 +122,17 @@ describe("Tic Tac Toe AI Agent Integration", () => {
         ],
       });
     } catch (error) {
-      logger.error("TicTacToeAgent", "MCP integration failed", error);
+      logger.error("TicTacToeAgent", "AI tool integration failed", error);
       throw error;
     }
   });
 
-  it("should demonstrate Project 12 MCP integration", async () => {
-    logger.info("TicTacToeAgent", "📦 Project 12 - MCP Integration Test");
+  it("should demonstrate local AI-agent architecture", async () => {
+    logger.info("TicTacToeAgent", "📦 Local AI-agent architecture test");
 
-    const mcpArchitecture = {
-      before_project_11: "Agent → Hand-written Python functions",
-      after_project_12: "Agent → MCP Server Module → Pure functions",
-      toolsLocation: "backend/mcp_servers/tictactoe_mcp.py",
+    const architecture = {
+      mode: "Agent → Local tool functions in tictactoe_agent.py",
+      toolsLocation: "backend/app/ai/agents/tictactoe_agent.py",
       toolsAvailable: [
         "validate_board",
         "get_legal_moves",
@@ -143,15 +142,15 @@ describe("Tic Tac Toe AI Agent Integration", () => {
       ],
     };
 
-    logger.success("TicTacToeAgent", "🏗️ MCP Architecture validated", {
-      architecture: mcpArchitecture,
+    logger.success("TicTacToeAgent", "🏗️ Architecture validated", {
+      architecture,
       unchanged: [
         "Agent logic",
         "System prompt",
         "Frontend code",
         "API endpoints",
       ],
-      swapped: "Tool execution source (now via MCP module)",
+      implementation: "Local tool execution (no TicTacToe MCP module)",
     });
   });
 });

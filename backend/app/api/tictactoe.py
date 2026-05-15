@@ -6,7 +6,7 @@ from pydantic import BaseModel, field_validator
 
 from app.core.dependencies import get_current_user
 from app.models.user import User
-from app.ai.agents import create_tictactoe_agent, TicTacToeTools
+from app.ai.agents import create_tictactoe_agent
 
 router = APIRouter(prefix="/api/tictactoe", tags=["tictactoe"])
 
@@ -38,6 +38,24 @@ def _winner(board: Board) -> str | None:
         if board[a] and board[a] == board[b] == board[c]:
             return board[a]
     return None
+
+
+def _describe_board(board: Board) -> str:
+    """Convert board list to readable ASCII representation."""
+    if len(board) != 9:
+        return "Invalid board"
+
+    grid = []
+    for i in range(3):
+        row = []
+        for j in range(3):
+            idx = i * 3 + j
+            cell = board[idx]
+            row.append(cell if cell else str(idx))
+        grid.append(" | ".join(row))
+
+    ascii_board = "\n---------\n".join(grid)
+    return f"Board positions (0-8):\n{ascii_board}"
 
 
 def _minimax(board: Board, is_maximizing: bool) -> int:
@@ -130,13 +148,21 @@ async def agent_move(
 # ──────────────────────────────────────────────────────────────
 
 _agent_executor = None
+_agent_error = None
 
 
 def _get_agent():
     """Lazy-load agent executor (initialized once)."""
-    global _agent_executor
-    if _agent_executor is None:
-        _agent_executor = create_tictactoe_agent()
+    global _agent_executor, _agent_error
+    if _agent_executor is None and _agent_error is None:
+        try:
+            _agent_executor = create_tictactoe_agent()
+        except Exception as e:
+            _agent_error = str(e)
+    
+    if _agent_error:
+        raise ValueError(_agent_error)
+    
     return _agent_executor
 
 
@@ -154,19 +180,11 @@ async def agent_move_llm(
     """
     _validate_board_state(req.board)
     
-    # Get agent executor
-    executor = _get_agent()
-    
-    # Prepare board description for agent
-    board_desc = TicTacToeTools.describe_board(req.board)
-    
-    # Run agent reasoning and move selection
+    # Try to get agent executor
     try:
-        result = executor.invoke({
-            "input": f"Current board state:\n{board_desc}\n\nAnalyze the board and make your optimal move.",
-        })
-    except Exception as e:
-        # Fallback to minimax if agent fails
+        executor = _get_agent()
+    except ValueError as config_error:
+        # LLM not configured - use minimax fallback
         board = req.board[:]
         move = _best_move(board)
         if move != -1:
@@ -178,18 +196,64 @@ async def agent_move_llm(
             move=move,
             winner=winner,
             draw=draw,
-            reasoning=f"Agent error (using fallback minimax): {str(e)[:100]}",
+            reasoning=f"⚙️ Agent mode unavailable: {str(config_error)}. Using strategic minimax algorithm instead.",
         )
     
-    # Extract agent reasoning from output
-    reasoning = result.get("output", "")
+    # Prepare board description for agent
+    board_desc = _describe_board(req.board)
+    
+    # Run agent reasoning and move selection
+    try:
+        result = executor.invoke({
+            "messages": [
+                (
+                    "user",
+                    f"Current board state:\n{board_desc}\n\nAnalyze the board and make your optimal move.",
+                )
+            ],
+        })
+    except Exception as e:
+        # Fallback to minimax if agent fails
+        error_str = str(e)
+        
+        # Provide more specific error messages
+        if "401" in error_str:
+            error_msg = "API authentication failed (check LLM credentials)"
+        elif "key not allowed" in error_str.lower():
+            error_msg = "LLM API key doesn't have permission for this model"
+        elif "timeout" in error_str.lower():
+            error_msg = "LLM service timeout"
+        else:
+            error_msg = error_str[:80]
+        
+        board = req.board[:]
+        move = _best_move(board)
+        if move != -1:
+            board[move] = "O"
+        winner = _winner(board)
+        draw = winner is None and all(c is not None for c in board)
+        return AgentMoveResponse(
+            board=board,
+            move=move,
+            winner=winner,
+            draw=draw,
+            reasoning=f"🔧 Agent unavailable ({error_msg}). Using strategic minimax algorithm.",
+        )
+    
+    # Extract agent reasoning from final AI message.
+    reasoning = ""
+    if "messages" in result and result["messages"]:
+        for message in reversed(result["messages"]):
+            content = getattr(message, "content", "")
+            if isinstance(content, str) and content.strip():
+                reasoning = content
+                break
     
     # Try to extract the board state from the agent's last action
     final_board = req.board[:]
     move_position = -1
     
-    # Parse the result to find make_move tool call
-    # The result structure from langgraph should contain the tool messages
+    # Parse tool call arguments first.
     if "messages" in result:
         for message in result["messages"]:
             if hasattr(message, "tool_calls"):
@@ -198,6 +262,10 @@ async def agent_move_llm(
                         args = tool_call.get("args", {})
                         if isinstance(args, dict):
                             move_position = args.get("position", -1)
+                            if 0 <= move_position <= 8 and req.board[move_position] is None:
+                                final_board = req.board[:]
+                                final_board[move_position] = "O"
+                                break
     
     # Fallback: Try to parse position from reasoning text
     if move_position == -1:

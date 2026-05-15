@@ -8,6 +8,7 @@ Thumbs.db
 .env.example
 .copilot/
 *.json  # credentials files
+backend/chatbot-*.json
 
 # Python
 __pycache__/

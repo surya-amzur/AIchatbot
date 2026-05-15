@@ -1,50 +1,19 @@
 """
-Research Digest Agent — Project 10
+Research Digest Agent — Project 10 (Core Logic)
 Autonomously searches arXiv, decides when it has enough evidence,
 and streams a structured digest token-by-token via an async generator.
+
+PROJECT 12 UPGRADE: Tool functions now imported from MCP server.
+Agent logic, system prompt, and streaming contract remain UNCHANGED.
 """
 from __future__ import annotations
 
 import json
-import textwrap
 from typing import AsyncGenerator
 
-import arxiv
+from mcp_servers.research_mcp import ResearchToolkit
 
 from app.ai.llm import llm
-
-# ── arXiv tool helpers ─────────────────────────────────────────────────────────
-
-def _search_arxiv(query: str, max_results: int = 8) -> list[dict]:
-    """Run a synchronous arXiv search with retry on 429."""
-    import time
-
-    client = arxiv.Client(page_size=max_results, delay_seconds=3, num_retries=5)
-    search = arxiv.Search(
-        query=query,
-        max_results=max_results,
-        sort_by=arxiv.SortCriterion.Relevance,
-    )
-    for attempt in range(3):
-        try:
-            results = []
-            for paper in client.results(search):
-                results.append({
-                    "arxiv_id": paper.entry_id.split("/abs/")[-1],
-                    "title": paper.title.strip(),
-                    "authors": [a.name for a in paper.authors[:4]],
-                    "published": paper.published.strftime("%Y-%m-%d") if paper.published else "",
-                    "summary": textwrap.shorten(paper.summary.strip().replace("\n", " "), width=400, placeholder="..."),
-                    "url": paper.entry_id,
-                    "categories": paper.categories[:3],
-                })
-            return results
-        except Exception as exc:
-            if "429" in str(exc) and attempt < 2:
-                time.sleep(5 * (attempt + 1))
-                continue
-            raise
-    return []
 
 
 # ── system prompt ──────────────────────────────────────────────────────────────
@@ -105,11 +74,15 @@ async def stream_research_digest(
         # ── Step 1: status ─────────────────────────────────────────────────────
         yield _emit({"type": "status", "text": f"🔍 Searching arXiv for: {topic}"})
 
-        # ── Step 2: fetch papers (sync, run in thread pool via anyio) ──────────
+        # ── Step 2: fetch papers via MCP toolkit ────────────────────────────────
+        yield _emit({"type": "status", "text": f"🔧 [MCP] Calling ResearchToolkit.search_arxiv(query={topic!r}, max_results={max_papers})"})
         import anyio
-        papers = await anyio.to_thread.run_sync(
-            lambda: _search_arxiv(topic, max_results=max_papers)
+        result = await anyio.to_thread.run_sync(
+            lambda: ResearchToolkit.search_arxiv(topic, max_results=max_papers)
         )
+        papers = result.get("papers", []) if result.get("success") else []
+        yield _emit({"type": "status", "text": f"🔧 [MCP] search_arxiv returned {len(papers)} papers (success={result.get('success')})"})
+
 
         if not papers:
             yield _emit({"type": "error", "text": "No papers found on arXiv for this topic. Try a different query."})

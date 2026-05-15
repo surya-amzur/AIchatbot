@@ -1,7 +1,11 @@
 """Research Digest API — SSE streaming endpoint."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+import asyncio
+import json
+from collections import defaultdict
+
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -10,6 +14,11 @@ from app.core.dependencies import get_current_user
 from app.models.user import User
 
 router = APIRouter(prefix="/api/research", tags=["research"])
+
+# Per-user concurrent request limit
+_MAX_CONCURRENT_PER_USER = 2
+_user_active_requests: dict[str, int] = defaultdict(int)
+_user_lock = asyncio.Lock()
 
 
 class ResearchDigestRequest(BaseModel):
@@ -20,14 +29,28 @@ class ResearchDigestRequest(BaseModel):
 @router.post("/digest")
 async def research_digest(
     request: ResearchDigestRequest,
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> StreamingResponse:
-    """
-    Stream a structured research digest for the given topic.
-    Events are newline-delimited SSE: `data: {...}\n\n`
-    """
+    user_key = str(current_user.id)
+
+    async with _user_lock:
+        if _user_active_requests[user_key] >= _MAX_CONCURRENT_PER_USER:
+            raise HTTPException(
+                status_code=429,
+                detail={"error": "too_many_requests", "message": "You already have active research requests. Please wait."},
+            )
+        _user_active_requests[user_key] += 1
+
+    async def _stream_with_cleanup() -> asyncio.AsyncGenerator[str, None]:
+        try:
+            async for chunk in stream_research_digest(request.topic, max_papers=request.max_papers):
+                yield chunk
+        finally:
+            async with _user_lock:
+                _user_active_requests[user_key] = max(0, _user_active_requests[user_key] - 1)
+
     return StreamingResponse(
-        stream_research_digest(request.topic, max_papers=request.max_papers),
+        _stream_with_cleanup(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

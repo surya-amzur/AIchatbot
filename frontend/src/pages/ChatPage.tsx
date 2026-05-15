@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import AppShell from "../components/layout/AppShell";
+import Button from "../components/ui/Button";
 import InputBar from "../components/chat/InputBar";
 import MessageList from "../components/chat/MessageList";
 import { useAuthQuery, useLogoutMutation } from "../hooks/useAuth";
@@ -93,6 +95,7 @@ function ChatPage() {
   const nl2SqlSectionRef = useRef<HTMLDivElement | null>(null);
   const tabularSectionRef = useRef<HTMLDivElement | null>(null);
   const imageRulesSectionRef = useRef<HTMLDivElement | null>(null);
+  const threadsContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (activeMode === "analyze") {
@@ -104,6 +107,16 @@ function ChatPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeMode]);
+
+  // Scroll loading for threads panel
+  const handleThreadsScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const container = e.currentTarget;
+    const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+    if (isAtBottom && threadsQuery.data?.threads.length) {
+      // Trigger refetch to load more threads if available
+      void threadsQuery.refetch();
+    }
+  };
   const nl2sqlQuestionRef = useRef<HTMLTextAreaElement | null>(null);
   const tabularQuestionRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -579,140 +592,111 @@ function ChatPage() {
   const isSending =
     sendMutation.isPending || generateImageMutation.isPending || nl2sqlBusy || tabularBusy || imageRulesBusy;
 
-  return (
-    <main className="flex h-screen w-full flex-col bg-slate-50">
-      <nav className="flex items-center gap-0 border-b border-slate-200 bg-white px-4 md:px-8">
-        {(["ask", "analyze", "image"] as const).map((mode) => {
-          const labels: Record<typeof mode, string> = {
-            ask: "💬 Ask",
-            analyze: "📊 Analyze Data",
-            image: "🖼️ Validate Image",
-          };
-          return (
-            <button
-              key={mode}
-              type="button"
-              onClick={() => {
-                setActiveMode(mode);
-                setMobilePanel("tools");
-              }}
-              className={`border-b-2 px-5 py-3 text-sm font-medium transition-colors ${
-                activeMode === mode
-                  ? "border-[#3557e6] text-[#3557e6]"
-                  : "border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300"
-              }`}
-            >
-              {labels[mode]}
-            </button>
-          );
-        })}
-        <div className="ml-auto pr-2">
-          <button
-            type="button"
-            onClick={() => navigate("/research")}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-          >
-            🔬 Research Agent
-          </button>
-        </div>
-      </nav>
-      <header className="border-b border-slate-200 bg-white px-4 py-4 shadow-sm md:px-6 lg:px-8">
-        <div className="mx-auto flex max-w-7xl items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-brand-600 to-brand-700">
-              <span className="text-lg font-bold text-white">A</span>
-            </div>
-            <h1 className="text-xl font-semibold text-slate-900">{heading}</h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1 md:hidden">
-              <button
-                type="button"
-                onClick={() => setMobilePanel((prev) => (prev === "tools" ? "none" : "tools"))}
-                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700"
-              >
-                Tools
-              </button>
-              <button
-                type="button"
-                onClick={() => setMobilePanel((prev) => (prev === "threads" ? "none" : "threads"))}
-                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700"
-              >
-                Threads
-              </button>
-            </div>
-            <div className="block xl:hidden">
-              <select
-                value={isDraftMode ? "__draft__" : selectedThreadId ?? "__all__"}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  if (value === "__all__") {
-                    setIsDraftMode(false);
-                    setSelectedThreadId(null);
-                    return;
-                  }
-                  if (value === "__draft__") {
-                    setIsDraftMode(true);
-                    setSelectedThreadId(null);
-                    setMessages([]);
-                    return;
-                  }
-                  setIsDraftMode(false);
-                  setSelectedThreadId(value);
-                }}
-                className="max-w-52 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-[#3557e6]"
-              >
-                <option value="__all__">All Conversations</option>
-                <option value="__draft__">New Draft</option>
-                {threadsQuery.data?.threads.map((thread) => (
-                  <option key={thread.id} value={thread.id}>
-                    {thread.title}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-            >
-              Logout
-            </button>
-          </div>
-        </div>
-      </header>
+  const handleRefreshMessage = (messageId: string) => {
+    const messageIndex = messages.findIndex((msg) => msg.id === messageId);
+    if (messageIndex === -1) return;
+    for (let i = messageIndex - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        void handleSend(messages[i].content, []);
+        return;
+      }
+    }
+  };
 
-      <section className="flex flex-1 flex-col gap-4 overflow-hidden px-4 py-4 md:flex-row md:gap-5 md:px-6 md:py-5 lg:gap-6 lg:px-8 lg:py-6">
+
+  return (
+    <AppShell
+      title={heading}
+      subtitle="Enterprise AI workspace"
+      tabs={([
+        { key: "ask", label: "Ask", active: activeMode === "ask", onClick: () => { setActiveMode("ask"); setMobilePanel("tools"); } },
+        { key: "analyze", label: "Analyze Data", active: activeMode === "analyze", onClick: () => { setActiveMode("analyze"); setMobilePanel("tools"); } },
+        { key: "image", label: "Validate Image", active: activeMode === "image", onClick: () => { setActiveMode("image"); setMobilePanel("tools"); } },
+      ] as const)}
+      actions={
+        <div className="flex items-center gap-2">
+          <div className="hidden items-center gap-1 md:flex">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => setMobilePanel((prev) => (prev === "tools" ? "none" : "tools"))}
+            >
+              Tools
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => setMobilePanel((prev) => (prev === "threads" ? "none" : "threads"))}
+            >
+              Threads
+            </Button>
+          </div>
+          <div className="hidden xl:block">
+            <select
+              onChange={(event) => {
+                const value = event.target.value;
+                if (value === "__all__") {
+                  setIsDraftMode(false);
+                  setSelectedThreadId(null);
+                  return;
+                }
+                if (value === "__draft__") {
+                  setIsDraftMode(true);
+                  setSelectedThreadId(null);
+                  setMessages([]);
+                  return;
+                }
+                setIsDraftMode(false);
+                setSelectedThreadId(value);
+              }}
+              className="h-8 max-w-52 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-xs text-[var(--color-text-secondary)] outline-none transition focus:border-[var(--color-primary-500)]"
+            >
+              <option value="__all__">All Conversations</option>
+              <option value="__draft__">New Draft</option>
+              {threadsQuery.data?.threads.map((thread) => (
+                <option key={thread.id} value={thread.id}>
+                  {thread.title}
+                </option>
+              ))}
+            </select>
+          </div>
+          <Button type="button" size="sm" variant="ghost" onClick={handleLogout}>Logout</Button>
+        </div>
+      }
+    >
+      <section className="flex flex-1 flex-col gap-2 overflow-hidden md:flex-row md:gap-3">
         <aside
-          className={`${mobilePanel === "tools" ? "flex" : "hidden"} w-full shrink-0 flex-col gap-4 overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:flex md:w-80 md:p-5`}
+          className={`${mobilePanel === "tools" ? "flex" : "hidden"} w-full shrink-0 flex-col gap-2 overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-2 shadow-[var(--shadow-soft)] md:flex md:w-80 md:gap-3 md:p-3`}
         >
-          <div className="flex flex-col gap-4">
-            <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Workflow Navigator</p>
-              <div className="grid grid-cols-3 gap-2">
+          <div className="flex flex-col gap-2">
+            <div className="space-y-1 rounded-lg border border-slate-200 bg-white p-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Navigator</p>
+              <div className="grid grid-cols-3 gap-1">
                 <button
                   type="button"
                   onClick={() => scrollToSection(nl2SqlSectionRef)}
-                  className="rounded-md border border-slate-300 bg-white px-2 py-2 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+                  className="rounded-md border border-slate-300 bg-white px-1.5 py-1 text-[10px] font-medium text-slate-700 hover:bg-slate-50"
                 >
                   NL2SQL
                 </button>
                 <button
                   type="button"
                   onClick={() => scrollToSection(tabularSectionRef)}
-                  className="rounded-md border border-slate-300 bg-white px-2 py-2 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+                  className="rounded-md border border-slate-300 bg-white px-1.5 py-1 text-[10px] font-medium text-slate-700 hover:bg-slate-50"
                 >
                   Tabular
                 </button>
                 <button
                   type="button"
                   onClick={() => scrollToSection(imageRulesSectionRef)}
-                  className="rounded-md border border-slate-300 bg-white px-2 py-2 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+                  className="rounded-md border border-slate-300 bg-white px-1.5 py-1 text-[10px] font-medium text-slate-700 hover:bg-slate-50"
                 >
                   Image
                 </button>
               </div>
-              <p className="rounded-md bg-slate-50 px-3 py-2 text-[11px] font-medium text-slate-700">{nextStepHint}</p>
+              <p className="rounded-md bg-slate-50 px-2 py-1 text-[10px] font-medium text-slate-700 leading-tight">{nextStepHint}</p>
             </div>
 
             {/* NL2SQL Section */}
@@ -876,29 +860,29 @@ function ChatPage() {
         </aside>
 
         <div
-          className={`${mobilePanel === "none" ? "flex" : "hidden"} min-w-0 flex-1 flex-col gap-4 overflow-hidden rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:flex md:p-5 lg:p-6`}
+          className={`${mobilePanel === "none" ? "flex" : "hidden"} min-w-0 flex-1 flex-col gap-2 overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-2 shadow-[var(--shadow-soft)] md:flex md:gap-2 md:p-3 lg:p-3`}
         >
           {!onboardingChecklist.hidden ? (
-            <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Onboarding Checklist</p>
+            <div className="rounded-lg border border-slate-200 bg-white px-2 py-1">
+              <div className="mb-0.5 flex items-center justify-between">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Onboarding</p>
                 <button
                   type="button"
                   onClick={() => setOnboardingChecklist((prev) => ({ ...prev, hidden: true }))}
-                  className="text-xs font-medium text-slate-500 hover:text-slate-700"
+                  className="text-[10px] font-medium text-slate-500 hover:text-slate-700"
                 >
                   Hide
                 </button>
               </div>
-              <div className="grid gap-1 text-xs text-slate-700 md:grid-cols-3">
-                <p>{onboardingChecklist.loadedData ? "✅" : "⬜"} Load a data source</p>
-                <p>{onboardingChecklist.askedQuestion ? "✅" : "⬜"} Ask first question</p>
-                <p>{onboardingChecklist.receivedAnswer ? "✅" : "⬜"} Receive first answer</p>
+              <div className="grid gap-0.5 text-[10px] text-slate-700 md:grid-cols-3">
+                <p>{onboardingChecklist.loadedData ? "✅" : "⬜"} Load</p>
+                <p>{onboardingChecklist.askedQuestion ? "✅" : "⬜"} Ask</p>
+                <p>{onboardingChecklist.receivedAnswer ? "✅" : "⬜"} Answer</p>
               </div>
             </div>
           ) : null}
-          <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-700">
-            <span className="font-semibold text-slate-900">Guided Flow:</span> {nextStepHint}
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] text-slate-700">
+            <span className="font-semibold text-slate-900">Next:</span> {nextStepHint}
           </div>
           <MessageList
             messages={messages}
@@ -907,10 +891,10 @@ function ChatPage() {
             onLoadOlder={() => {
               void loadOlderHistory();
             }}
-          />
+           onRefreshMessage={handleRefreshMessage} />
           {ragDocumentIds.length > 0 ? (
-            <div className="rounded-lg border border-brand-200 bg-brand-50 px-4 py-3 text-xs font-medium text-brand-900">
-              📄 RAG Mode Active: {ragDocumentIds.length} document(s) uploaded
+            <div className="rounded-lg border border-brand-200 bg-brand-50 px-2 py-1 text-[10px] font-medium text-brand-900">
+              📄 RAG: {ragDocumentIds.length} doc(s)
             </div>
           ) : null}
           <InputBar
@@ -921,18 +905,20 @@ function ChatPage() {
             focusSignal={composerFocusSignal}
           />
           {error ? (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+            <div className="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-[10px] text-red-900">
               ⚠️ {error}
             </div>
           ) : null}
         </div>
 
         <aside
-          className={`${mobilePanel === "threads" ? "flex" : "hidden"} w-full shrink-0 flex-col gap-4 overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:hidden xl:flex xl:w-80 xl:p-5`}
+          ref={threadsContainerRef}
+          onScroll={handleThreadsScroll}
+          className={`${mobilePanel === "threads" ? "flex" : "hidden"} w-full shrink-0 flex-col gap-2 overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-2 shadow-[var(--shadow-soft)] md:hidden xl:flex xl:w-80 xl:gap-3 xl:p-3`}
         >
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold text-slate-900">Conversations</h2>
-            <div className="flex items-center gap-1">
+          <div className="mb-1 flex items-center justify-between gap-1">
+            <h2 className="text-xs font-semibold text-slate-900">Conversations</h2>
+            <div className="flex items-center gap-0.5">
               <button
                 type="button"
                 onClick={() => {
@@ -940,7 +926,7 @@ function ChatPage() {
                   setSelectedThreadId(null);
                   setError("");
                 }}
-                className={`rounded-lg px-2 py-1 text-xs font-medium transition-colors ${
+                className={`rounded-lg px-1.5 py-0.5 text-xs font-medium transition-colors ${
                   !isDraftMode && selectedThreadId === null
                     ? "bg-brand-600 text-white"
                     : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
@@ -956,7 +942,7 @@ function ChatPage() {
                   setMessages([]);
                   setError("");
                 }}
-                className={`rounded-lg px-2 py-1 text-xs font-medium transition-colors ${
+                className={`rounded-lg px-1.5 py-0.5 text-xs font-medium transition-colors ${
                   isDraftMode
                     ? "bg-brand-600 text-white"
                     : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
@@ -966,11 +952,11 @@ function ChatPage() {
               </button>
             </div>
           </div>
-          <div className="space-y-2">
+          <div className="space-y-1">
             {threadsQuery.data?.threads.map((thread) => (
               <div
                 key={thread.id}
-                className={`w-full rounded-lg border p-3 text-left transition-all ${
+                className={`w-full rounded-lg border p-2 text-left transition-all ${
                   selectedThreadId === thread.id
                     ? "border-brand-500 bg-brand-50 shadow-sm"
                     : "border-slate-200 bg-white hover:bg-slate-50"
@@ -984,27 +970,27 @@ function ChatPage() {
                   }}
                   className="w-full text-left"
                 >
-                  <p className={`text-sm font-medium ${selectedThreadId === thread.id ? "text-brand-900" : "text-slate-900"}`}>
+                  <p className={`text-xs font-medium leading-tight ${selectedThreadId === thread.id ? "text-brand-900" : "text-slate-900"}`}>
                     {thread.title}
                   </p>
                   {thread.last_message ? (
-                    <p className={`mt-1 line-clamp-2 text-xs ${selectedThreadId === thread.id ? "text-brand-700" : "text-slate-600"}`}>
+                    <p className={`mt-0.5 line-clamp-1 text-[11px] leading-tight ${selectedThreadId === thread.id ? "text-brand-700" : "text-slate-600"}`}>
                       {thread.last_message}
                     </p>
                   ) : null}
                 </button>
-                <div className="mt-2 flex items-center justify-end gap-1 text-xs">
+                <div className="mt-1 flex items-center justify-end gap-0.5 text-xs">
                   <button
                     type="button"
                     onClick={() => void handleRenameThread(thread.id, thread.title)}
-                    className="rounded px-2 py-1 text-slate-600 hover:bg-slate-100 transition-colors"
+                    className="rounded px-1.5 py-0.5 text-slate-600 hover:bg-slate-100 transition-colors"
                   >
                     ✏️
                   </button>
                   <button
                     type="button"
                     onClick={() => void handleDeleteThread(thread.id)}
-                    className="rounded px-2 py-1 text-red-600 hover:bg-red-50 transition-colors"
+                    className="rounded px-1.5 py-0.5 text-red-600 hover:bg-red-50 transition-colors"
                   >
                     🗑️
                   </button>
@@ -1014,8 +1000,11 @@ function ChatPage() {
           </div>
         </aside>
       </section>
-    </main>
+    </AppShell>
   );
 }
 
 export default ChatPage;
+
+
+

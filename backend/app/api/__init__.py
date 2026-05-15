@@ -5,6 +5,7 @@ from app.api.nl2sql import router as nl2sql_router
 from app.api.rag import router as rag_router
 from app.api.research import router as research_router
 from app.api.tabular import router as tabular_router
+from app.api.tictactoe import router as tictactoe_router
 
 __all__ = [
 	"auth_router",
@@ -14,4 +15,5 @@ __all__ = [
 	"rag_router",
 	"research_router",
 	"tabular_router",
+	"tictactoe_router",
 ]

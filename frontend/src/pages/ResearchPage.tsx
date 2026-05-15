@@ -1,6 +1,9 @@
 import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthQuery, useLogoutMutation } from "../hooks/useAuth";
+import AppShell from "../components/layout/AppShell";
+import Card from "../components/ui/Card";
+import Button from "../components/ui/Button";
 
 // ── types ──────────────────────────────────────────────────────────────────────
 
@@ -162,55 +165,33 @@ function ResearchPage() {
   const name = authQuery.data?.name ?? "User";
 
   return (
-    <main className="flex h-screen w-full flex-col bg-slate-50">
-      {/* ── Header ── */}
-      <header className="border-b border-slate-200 bg-white px-6 py-4 shadow-sm">
-        <div className="mx-auto flex max-w-7xl items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#3557e6]">
-              <span className="text-lg font-bold text-white">R</span>
-            </div>
-            <div>
-              <h1 className="text-xl font-semibold text-slate-900">Research Digest Agent</h1>
-              <p className="text-xs text-slate-500">Autonomous arXiv search · {name}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => navigate("/chat")}
-              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-            >
-              ← Chat
-            </button>
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-            >
-              Logout
-            </button>
-          </div>
+    <AppShell
+      title="Agents"
+      subtitle={`Autonomous arXiv analysis · ${name}`}
+      actions={
+        <div className="flex items-center gap-2">
+          <Button type="button" size="sm" onClick={() => navigate("/chat")}>Back to Workspace</Button>
+          <Button type="button" size="sm" variant="ghost" onClick={handleLogout}>Logout</Button>
         </div>
-      </header>
-
-      <div className="flex flex-1 flex-col gap-6 overflow-auto p-6 lg:flex-row">
+      }
+    >
+      <div className="flex flex-1 flex-col gap-5 lg:flex-row">
         {/* ── Left: Query Panel ── */}
         <div className="flex w-full flex-col gap-4 lg:w-96 lg:shrink-0">
-          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="mb-4 text-sm font-semibold text-slate-900">🔬 Research Query</p>
+          <Card className="p-5">
+            <p className="mb-4 text-sm font-semibold text-[var(--color-text-primary)]">🔬 Research Query</p>
 
-            <label className="mb-1 block text-xs font-medium text-slate-700">Topic / Question</label>
+            <label className="mb-1 block text-xs font-medium text-[var(--color-text-secondary)]">Topic / Question</label>
             <textarea
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
               rows={4}
               placeholder="e.g. Retrieval-Augmented Generation for code generation"
               disabled={running}
-              className="mb-3 w-full resize-none rounded-lg border-2 border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-500 focus:border-[#3557e6] focus:outline-none focus:ring-2 focus:ring-[#c2d6ff] transition disabled:opacity-60"
+              className="mb-3 w-full resize-none rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-primary-500)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-200)] transition disabled:opacity-60"
             />
 
-            <label className="mb-1 block text-xs font-medium text-slate-700">Max papers (1–20)</label>
+            <label className="mb-1 block text-xs font-medium text-[var(--color-text-secondary)]">Max papers (1–20)</label>
             <input
               type="number"
               min={1}
@@ -218,15 +199,16 @@ function ResearchPage() {
               value={maxPapers}
               onChange={(e) => setMaxPapers(Number(e.target.value))}
               disabled={running}
-              className="mb-4 w-full rounded-lg border-2 border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-[#3557e6] focus:outline-none transition disabled:opacity-60"
+              className="mb-4 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-primary-500)] focus:outline-none transition disabled:opacity-60"
             />
 
             <div className="flex gap-2">
-              <button
+              <Button
                 type="button"
                 onClick={() => void handleRun()}
                 disabled={running || !topic.trim()}
-                className="flex-1 rounded-lg border border-[#1f318a] bg-[#3557e6] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#2a42b8] disabled:border-slate-300 disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed transition-colors shadow-sm"
+                variant="primary"
+                className="h-10 flex-1"
               >
                 {running ? (
                   <span className="flex items-center justify-center gap-2">
@@ -234,53 +216,54 @@ function ResearchPage() {
                     Running…
                   </span>
                 ) : "🚀 Run Agent"}
-              </button>
+              </Button>
               {running && (
-                <button
+                <Button
                   type="button"
                   onClick={handleStop}
-                  className="rounded-lg border border-red-300 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-100 transition-colors"
+                  variant="danger"
+                  className="h-10"
                 >
                   Stop
-                </button>
+                </Button>
               )}
             </div>
-          </div>
+          </Card>
 
           {/* Status log */}
           {statusLog.length > 0 && (
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Agent Log</p>
+            <Card className="p-4">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Agent Log</p>
               <ul className="space-y-1">
                 {statusLog.map((s, i) => (
-                  <li key={i} className="text-xs text-slate-700">{s}</li>
+                  <li key={i} className="text-xs text-[var(--color-text-secondary)]">{s}</li>
                 ))}
               </ul>
-            </div>
+            </Card>
           )}
 
           {/* Raw papers found */}
           {rawPapers.length > 0 && (
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <Card className="p-4">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
                 Papers Retrieved ({rawPapers.length})
               </p>
               <ul className="space-y-2">
                 {rawPapers.map((p) => (
-                  <li key={p.arxiv_id} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                  <li key={p.arxiv_id} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-soft)] px-3 py-2">
                     <a
                       href={p.url}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-xs font-medium text-[#3557e6] hover:underline line-clamp-2"
+                      className="line-clamp-2 text-xs font-medium text-[var(--color-primary-600)] hover:underline"
                     >
                       {p.title}
                     </a>
-                    <p className="mt-0.5 text-[11px] text-slate-500">{p.authors.slice(0, 2).join(", ")} · {p.published}</p>
+                    <p className="mt-0.5 text-[11px] text-[var(--color-text-muted)]">{p.authors.slice(0, 2).join(", ")} · {p.published}</p>
                   </li>
                 ))}
               </ul>
-            </div>
+            </Card>
           )}
         </div>
 
@@ -391,7 +374,7 @@ function ResearchPage() {
             <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-xl border-2 border-dashed border-slate-200 bg-white p-12 text-center">
               <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#f0f4ff] text-3xl">🔬</div>
               <div>
-                <p className="text-base font-semibold text-slate-800">Research Digest Agent</p>
+                <p className="text-base font-semibold text-slate-800">Agents — Research Digest</p>
                 <p className="mt-1 text-sm text-slate-500">Enter a topic, click <strong>Run Agent</strong>, and watch it autonomously search arXiv and stream a structured digest.</p>
               </div>
               <div className="grid grid-cols-3 gap-3 text-xs text-slate-600">
@@ -412,7 +395,7 @@ function ResearchPage() {
           )}
         </div>
       </div>
-    </main>
+    </AppShell>
   );
 }
 

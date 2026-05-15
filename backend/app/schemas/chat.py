@@ -5,13 +5,13 @@ from pydantic import BaseModel, Field
 
 
 class ChatRequest(BaseModel):
-    message: str
+    message: str = Field(min_length=1, max_length=8000)
     thread_id: uuid.UUID | None = None
     attachments: list["AttachmentIn"] = Field(default_factory=list)
 
 
 class ThreadUpdateRequest(BaseModel):
-    title: str
+    title: str = Field(min_length=1, max_length=100)
 
 
 class MessageOut(BaseModel):

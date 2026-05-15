@@ -1,9 +1,34 @@
-from fastapi import APIRouter, Depends, HTTPException
+import time
+from collections import defaultdict
+from threading import Lock
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from google.auth.exceptions import GoogleAuthError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+
+# --- Simple in-memory rate limiter (per IP) ---
+_RATE_WINDOW = 60        # seconds
+_RATE_MAX_ATTEMPTS = 10  # per window per IP
+_rate_store: dict[str, list[float]] = defaultdict(list)
+_rate_lock = Lock()
+
+
+def _check_rate_limit(request: Request) -> None:
+    ip = request.client.host if request.client else "unknown"
+    now = time.monotonic()
+    with _rate_lock:
+        timestamps = _rate_store[ip]
+        # Discard timestamps outside window
+        _rate_store[ip] = [t for t in timestamps if now - t < _RATE_WINDOW]
+        if len(_rate_store[ip]) >= _RATE_MAX_ATTEMPTS:
+            raise HTTPException(
+                status_code=429,
+                detail={"error": "rate_limited", "message": "Too many attempts. Please wait before trying again."},
+            )
+        _rate_store[ip].append(now)
 from app.core.dependencies import get_current_user
 from app.core.security import create_access_token
 from app.db.session import get_db
@@ -48,8 +73,10 @@ def _set_access_cookie(response: JSONResponse, email: str) -> None:
 @router.post("/signup", response_model=LoginSuccessResponse)
 async def signup(
     payload: ManualSignupRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
+    _check_rate_limit(request)
     try:
         user = await signup_user_with_password(
             db,
@@ -76,8 +103,10 @@ async def signup(
 @router.post("/login", response_model=LoginSuccessResponse)
 async def login(
     payload: ManualLoginRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
+    _check_rate_limit(request)
     try:
         user = await login_user_with_password(db, payload.email, payload.password)
     except InvalidCredentialsError as exc:
@@ -94,8 +123,10 @@ async def login(
 @router.post("/google/login", response_model=LoginSuccessResponse)
 async def google_login(
     payload: GoogleLoginRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
+    _check_rate_limit(request)
     try:
         user = await get_or_create_user_from_google_credential(db, payload.credential)
     except EmployeeDomainNotAllowedError as exc:

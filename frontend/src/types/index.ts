@@ -14,6 +14,10 @@ export type Message = {
 	content: string;
 	created_at: string;
 	attachments?: Attachment[];
+	source?: string; // Source tag: "bugs_sheet.xlsx · 3s ago"
+	confidence?: "high" | "medium" | "low"; // AI response confidence
+	isLoading?: boolean; // Typing indicator for loading state
+	reasoning?: string; // Agent reasoning display
 };
 
 export type Attachment = {

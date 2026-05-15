@@ -16,7 +16,10 @@ FORBIDDEN_SQL_RE = re.compile(
     r"\\b(insert|update|delete|drop|alter|truncate|create|grant|revoke|copy|call|execute|merge)\\b",
     flags=re.IGNORECASE,
 )
+# Captures tables after FROM and JOIN (covers UNION SELECT ... FROM as well)
 FROM_JOIN_RE = re.compile(r"\\b(?:from|join)\\s+([A-Za-z_][\\w.\"]*)", flags=re.IGNORECASE)
+# Also catches sub-selects inside UNION / INTERSECT / EXCEPT
+SUBQUERY_TABLE_RE = re.compile(r"\\b(?:union|intersect|except)\\b[\\s\\S]*?\\bfrom\\s+([A-Za-z_][\\w.\"]*)", flags=re.IGNORECASE)
 LIMIT_RE = re.compile(r"\\blimit\\s+\\d+\\b", flags=re.IGNORECASE)
 
 
@@ -133,6 +136,7 @@ def _validate_sql(sql: str, allowed_tables: set[str], tables_with_user_id: set[s
         raise Nl2SqlServiceError("Unsafe SQL detected. Only read-only SELECT is permitted.")
 
     refs = {_normalize_table_ref(token) for token in FROM_JOIN_RE.findall(normalized)}
+    refs |= {_normalize_table_ref(token) for token in SUBQUERY_TABLE_RE.findall(normalized)}
     unknown = sorted(ref for ref in refs if ref not in allowed_tables)
     if unknown:
         raise Nl2SqlServiceError(

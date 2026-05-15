@@ -18,24 +18,50 @@ class ImageRuleValidationError(Exception):
     pass
 
 
+_INJECTION_PATTERN = re.compile(
+    r"(ignore\s+(previous|above|all|prior)|forget\s+(all|previous)|system\s*:|<\s*system\s*>|"
+    r"you\s+are\s+now|pretend\s+(you|to)|disregard|new\s+instruction)",
+    flags=re.IGNORECASE,
+)
+_MAX_RULES = 50
+_MAX_RULE_LEN = 500
+
+
+def _sanitize_rule(rule: str) -> str:
+    """Remove control characters and truncate."""
+    sanitized = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", rule).strip()
+    return sanitized[:_MAX_RULE_LEN]
+
+
 def _parse_rules_text(raw: str) -> list[str]:
     text = raw.strip()
     if not text:
         raise ImageRuleValidationError("Rules text cannot be empty.")
+    if len(text) > 20000:
+        raise ImageRuleValidationError("Rules text is too long (max 20,000 characters).")
 
     try:
         parsed = json.loads(text)
         if isinstance(parsed, list):
-            rules = [str(item).strip() for item in parsed if str(item).strip()]
+            rules = [_sanitize_rule(str(item)) for item in parsed if str(item).strip()]
+            rules = [r for r in rules if r]
             if rules:
-                return rules
+                return rules[:_MAX_RULES]
     except Exception:
         pass
 
-    rules = [line.strip(" -\t") for line in text.splitlines() if line.strip()]
+    rules = [_sanitize_rule(line.strip(" -\t")) for line in text.splitlines() if line.strip()]
+    rules = [r for r in rules if r]
     if not rules:
         raise ImageRuleValidationError("No valid rules were found.")
-    return rules
+
+    for rule in rules:
+        if _INJECTION_PATTERN.search(rule):
+            raise ImageRuleValidationError(
+                "Rules contain disallowed instructions. Please provide compliance rules only."
+            )
+
+    return rules[:_MAX_RULES]
 
 
 def _extract_json_payload(text: str) -> dict[str, object]:

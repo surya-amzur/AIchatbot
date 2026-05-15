@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import InputBar from "../components/chat/InputBar";
@@ -13,6 +13,7 @@ import {
   useSendMessageMutation,
 } from "../hooks/useChat";
 import {
+  getHistory,
   getNl2SqlSchema,
   queryNl2Sql,
   queryRag,
@@ -24,6 +25,15 @@ import {
   validateImageRules,
 } from "../lib/api";
 import type { Attachment, Message } from "../types";
+
+const HISTORY_PAGE_SIZE = 30;
+
+type OnboardingChecklistState = {
+  loadedData: boolean;
+  askedQuestion: boolean;
+  receivedAnswer: boolean;
+  hidden: boolean;
+};
 
 function ChatPage() {
   const navigate = useNavigate();
@@ -50,8 +60,52 @@ function ChatPage() {
   const [gsheetWorksheet, setGsheetWorksheet] = useState<string>("");
   const [tabularQuestion, setTabularQuestion] = useState<string>("");
   const [tabularBusy, setTabularBusy] = useState<boolean>(false);
+  const [tabularError, setTabularError] = useState<string>("");
+  const [tabularSuccess, setTabularSuccess] = useState<string>("");
   const [rulesText, setRulesText] = useState<string>("");
   const [imageRulesBusy, setImageRulesBusy] = useState<boolean>(false);
+  const [historyOffset, setHistoryOffset] = useState<number>(0);
+  const [hasMoreHistory, setHasMoreHistory] = useState<boolean>(false);
+  const [loadingOlderHistory, setLoadingOlderHistory] = useState<boolean>(false);
+  const [activeMode, setActiveMode] = useState<"ask" | "analyze" | "image">("ask");
+  const [mobilePanel, setMobilePanel] = useState<"none" | "tools" | "threads">("none");
+  const [composerFocusSignal, setComposerFocusSignal] = useState<number>(0);
+  const [onboardingChecklist, setOnboardingChecklist] = useState<OnboardingChecklistState>(() => {
+    if (typeof window === "undefined") {
+      return { loadedData: false, askedQuestion: false, receivedAnswer: false, hidden: false };
+    }
+    try {
+      const raw = window.localStorage.getItem("amzur_onboarding_checklist");
+      if (!raw) {
+        return { loadedData: false, askedQuestion: false, receivedAnswer: false, hidden: false };
+      }
+      const parsed = JSON.parse(raw) as Partial<OnboardingChecklistState>;
+      return {
+        loadedData: Boolean(parsed.loadedData),
+        askedQuestion: Boolean(parsed.askedQuestion),
+        receivedAnswer: Boolean(parsed.receivedAnswer),
+        hidden: Boolean(parsed.hidden),
+      };
+    } catch {
+      return { loadedData: false, askedQuestion: false, receivedAnswer: false, hidden: false };
+    }
+  });
+  const nl2SqlSectionRef = useRef<HTMLDivElement | null>(null);
+  const tabularSectionRef = useRef<HTMLDivElement | null>(null);
+  const imageRulesSectionRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (activeMode === "analyze") {
+      setTimeout(() => tabularSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+    } else if (activeMode === "image") {
+      setTimeout(() => imageRulesSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+    } else if (activeMode === "ask") {
+      setTimeout(() => composerFocusSignal === 0 && setComposerFocusSignal(1), 100);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeMode]);
+  const nl2sqlQuestionRef = useRef<HTMLTextAreaElement | null>(null);
+  const tabularQuestionRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     if (authQuery.isError) {
@@ -62,8 +116,64 @@ function ChatPage() {
   useEffect(() => {
     if (!isDraftMode && historyQuery.data?.messages) {
       setMessages(historyQuery.data.messages);
+      setHistoryOffset(historyQuery.data.messages.length);
+      setHasMoreHistory(historyQuery.data.has_more);
     }
   }, [historyQuery.data, isDraftMode]);
+
+  const hasDataSource = ragDocumentIds.length > 0 || tabularDocumentIds.length > 0 || Boolean(nl2sqlSchemaText.trim());
+  const hasUserPrompt = messages.some((m) => m.role === "user" && m.content.trim().length > 0);
+  const hasAssistantReply = messages.some((m) => m.role === "assistant" && m.content.trim().length > 0);
+
+  useEffect(() => {
+    setOnboardingChecklist((prev) => {
+      const next: OnboardingChecklistState = {
+        ...prev,
+        loadedData: prev.loadedData || hasDataSource,
+        askedQuestion: prev.askedQuestion || hasUserPrompt,
+        receivedAnswer: prev.receivedAnswer || hasAssistantReply,
+      };
+      if (
+        next.loadedData === prev.loadedData &&
+        next.askedQuestion === prev.askedQuestion &&
+        next.receivedAnswer === prev.receivedAnswer &&
+        next.hidden === prev.hidden
+      ) {
+        return prev;
+      }
+      return next;
+    });
+  }, [hasAssistantReply, hasDataSource, hasUserPrompt]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem("amzur_onboarding_checklist", JSON.stringify(onboardingChecklist));
+  }, [onboardingChecklist]);
+
+  const loadOlderHistory = async () => {
+    if (!selectedThreadId || loadingOlderHistory || !hasMoreHistory || isDraftMode) {
+      return;
+    }
+
+    setLoadingOlderHistory(true);
+    try {
+      const older = await getHistory(selectedThreadId, { offset: historyOffset, limit: HISTORY_PAGE_SIZE });
+      if (!older.messages.length) {
+        setHasMoreHistory(false);
+        return;
+      }
+
+      setMessages((prev) => [...older.messages, ...prev]);
+      setHistoryOffset((prev) => prev + older.messages.length);
+      setHasMoreHistory(older.has_more);
+    } catch {
+      setError("Failed to load older chat history.");
+    } finally {
+      setLoadingOlderHistory(false);
+    }
+  };
 
   const handleLogout = async () => {
     try {
@@ -175,6 +285,7 @@ function ChatPage() {
       const uploaded = await uploadPdfForRag(file, selectedThreadId);
       setRagDocumentIds((prev) => [...prev, uploaded.document_id]);
       setError("");
+      setComposerFocusSignal(Date.now());
     } catch {
       setError("Failed to upload PDF for RAG.");
     }
@@ -189,6 +300,7 @@ function ChatPage() {
         (table) => `${table.name}: ${table.columns.map((col) => `${col.name} (${col.type})`).join(", ")}`,
       );
       setNl2sqlSchemaText(lines.join("\n"));
+      nl2sqlQuestionRef.current?.focus();
     } catch {
       setError("Failed to load NL2SQL schema.");
     } finally {
@@ -233,6 +345,7 @@ function ChatPage() {
     try {
       const uploaded = await uploadExcelForTabularQa(file, selectedThreadId);
       setTabularDocumentIds((prev) => [...prev, uploaded.document_id]);
+      tabularQuestionRef.current?.focus();
       const assistantMessage: Message = {
         id: `tabular-upload-${Date.now()}`,
         role: "assistant",
@@ -252,6 +365,7 @@ function ChatPage() {
     if (!gsheetUrl.trim()) {
       return;
     }
+    setTabularError("");
     setError("");
     setTabularBusy(true);
     try {
@@ -261,6 +375,10 @@ function ChatPage() {
         selectedThreadId,
       );
       setTabularDocumentIds((prev) => [...prev, uploaded.document_id]);
+      setTabularError("");
+      setTabularSuccess(`✅ Successfully loaded: ${uploaded.source_name} (${uploaded.row_count} rows)`);
+      setTimeout(() => setTabularSuccess(""), 5000);
+      tabularQuestionRef.current?.focus();
       const assistantMessage: Message = {
         id: `tabular-gsheet-${Date.now()}`,
         role: "assistant",
@@ -269,8 +387,6 @@ function ChatPage() {
         attachments: [],
       };
       setMessages((prev) => [...prev, assistantMessage]);
-      setGsheetUrl("");
-      setGsheetWorksheet("");
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { detail?: { message?: string } | string } } };
       const detail = axiosErr?.response?.data?.detail;
@@ -280,7 +396,7 @@ function ChatPage() {
           : typeof detail === "string"
           ? detail
           : "Failed to load Google Sheet for tabular QA.";
-      setError(msg);
+      setTabularError(msg);
     } finally {
       setTabularBusy(false);
     }
@@ -445,123 +561,182 @@ function ChatPage() {
     return name ? `Chat - ${name}` : "Chat";
   }, [authQuery.data]);
 
+  const nextStepHint = useMemo(() => {
+    if (!hasDataSource) {
+      return "Step 1: Load schema, sheet, or PDF so the assistant has context.";
+    }
+    if (!messages.length) {
+      return "Step 2: Ask your first question in the chat composer.";
+    }
+    return "Step 3: Continue the conversation or switch threads from the header.";
+  }, [messages.length, nl2sqlSchemaText, ragDocumentIds.length, tabularDocumentIds.length]);
+
+  const scrollToSection = (ref: { current: HTMLDivElement | null }) => {
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setMobilePanel("none");
+  };
+
   const isSending =
     sendMutation.isPending || generateImageMutation.isPending || nl2sqlBusy || tabularBusy || imageRulesBusy;
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6 py-8">
-      <header className="mb-6 flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-        <h1 className="text-lg font-semibold text-slate-900">{heading}</h1>
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
-        >
-          Logout
-        </button>
-      </header>
-
-      <section className="grid flex-1 grid-cols-[260px_1fr] gap-4">
-        <aside className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold text-slate-700">Conversations</h2>
-            <div className="flex items-center gap-2">
+    <main className="flex h-screen w-full flex-col bg-slate-50">
+      <nav className="flex items-center gap-0 border-b border-slate-200 bg-white px-4 md:px-8">
+        {(["ask", "analyze", "image"] as const).map((mode) => {
+          const labels: Record<typeof mode, string> = {
+            ask: "💬 Ask",
+            analyze: "📊 Analyze Data",
+            image: "🖼️ Validate Image",
+          };
+          return (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => {
+                setActiveMode(mode);
+                setMobilePanel("tools");
+              }}
+              className={`border-b-2 px-5 py-3 text-sm font-medium transition-colors ${
+                activeMode === mode
+                  ? "border-[#3557e6] text-[#3557e6]"
+                  : "border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300"
+              }`}
+            >
+              {labels[mode]}
+            </button>
+          );
+        })}
+        <div className="ml-auto pr-2">
+          <button
+            type="button"
+            onClick={() => navigate("/research")}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+          >
+            🔬 Research Agent
+          </button>
+        </div>
+      </nav>
+      <header className="border-b border-slate-200 bg-white px-4 py-4 shadow-sm md:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-7xl items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-brand-600 to-brand-700">
+              <span className="text-lg font-bold text-white">A</span>
+            </div>
+            <h1 className="text-xl font-semibold text-slate-900">{heading}</h1>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 md:hidden">
               <button
                 type="button"
-                onClick={() => {
-                  setIsDraftMode(false);
-                  setSelectedThreadId(null);
-                  setError("");
-                }}
-                className={`rounded-lg border px-2 py-1 text-xs font-medium ${
-                  !isDraftMode && selectedThreadId === null
-                    ? "border-slate-900 bg-slate-900 text-white"
-                    : "border-slate-300 bg-slate-100 text-slate-700"
-                }`}
+                onClick={() => setMobilePanel((prev) => (prev === "tools" ? "none" : "tools"))}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700"
               >
-                All Chats
+                Tools
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setIsDraftMode(true);
-                  setSelectedThreadId(null);
-                  setMessages([]);
-                  setError("");
-                }}
-                className={`rounded-lg border px-2 py-1 text-xs font-medium ${
-                  isDraftMode
-                    ? "border-slate-900 bg-slate-900 text-white"
-                    : "border-slate-300 bg-slate-100 text-slate-700"
-                }`}
+                onClick={() => setMobilePanel((prev) => (prev === "threads" ? "none" : "threads"))}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700"
               >
-                New Chat
+                Threads
               </button>
             </div>
-          </div>
-          <div className="space-y-2">
-            {threadsQuery.data?.threads.map((thread) => (
-              <div
-                key={thread.id}
-                className={`w-full rounded-xl border px-3 py-2 text-left ${
-                  selectedThreadId === thread.id
-                    ? "border-slate-900 bg-slate-900 text-white"
-                    : "border-slate-200 bg-slate-50 text-slate-800"
-                }`}
+            <div className="block xl:hidden">
+              <select
+                value={isDraftMode ? "__draft__" : selectedThreadId ?? "__all__"}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (value === "__all__") {
+                    setIsDraftMode(false);
+                    setSelectedThreadId(null);
+                    return;
+                  }
+                  if (value === "__draft__") {
+                    setIsDraftMode(true);
+                    setSelectedThreadId(null);
+                    setMessages([]);
+                    return;
+                  }
+                  setIsDraftMode(false);
+                  setSelectedThreadId(value);
+                }}
+                className="max-w-52 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-[#3557e6]"
               >
+                <option value="__all__">All Conversations</option>
+                <option value="__draft__">New Draft</option>
+                {threadsQuery.data?.threads.map((thread) => (
+                  <option key={thread.id} value={thread.id}>
+                    {thread.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+            >
+              Logout
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <section className="flex flex-1 flex-col gap-4 overflow-hidden px-4 py-4 md:flex-row md:gap-5 md:px-6 md:py-5 lg:gap-6 lg:px-8 lg:py-6">
+        <aside
+          className={`${mobilePanel === "tools" ? "flex" : "hidden"} w-full shrink-0 flex-col gap-4 overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:flex md:w-80 md:p-5`}
+        >
+          <div className="flex flex-col gap-4">
+            <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Workflow Navigator</p>
+              <div className="grid grid-cols-3 gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    setIsDraftMode(false);
-                    setSelectedThreadId(thread.id);
-                  }}
-                  className="w-full text-left"
+                  onClick={() => scrollToSection(nl2SqlSectionRef)}
+                  className="rounded-md border border-slate-300 bg-white px-2 py-2 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
                 >
-                  <p className="text-sm font-medium">{thread.title}</p>
-                  {thread.last_message ? (
-                    <p className="mt-1 line-clamp-2 text-xs opacity-80">{thread.last_message}</p>
-                  ) : null}
+                  NL2SQL
                 </button>
-                <div className="mt-2 flex items-center justify-end gap-2 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => void handleRenameThread(thread.id, thread.title)}
-                    className="rounded border border-current px-2 py-1 opacity-80 hover:opacity-100"
-                  >
-                    Rename
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleDeleteThread(thread.id)}
-                    className="rounded border border-current px-2 py-1 opacity-80 hover:opacity-100"
-                  >
-                    Delete
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => scrollToSection(tabularSectionRef)}
+                  className="rounded-md border border-slate-300 bg-white px-2 py-2 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Tabular
+                </button>
+                <button
+                  type="button"
+                  onClick={() => scrollToSection(imageRulesSectionRef)}
+                  className="rounded-md border border-slate-300 bg-white px-2 py-2 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Image
+                </button>
               </div>
-            ))}
-          </div>
-        </aside>
+              <p className="rounded-md bg-slate-50 px-3 py-2 text-[11px] font-medium text-slate-700">{nextStepHint}</p>
+            </div>
 
-        <div className="flex flex-1 flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <MessageList messages={messages} />
-
-          <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-3">
-            <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">NL2SQL</p>
+            {/* NL2SQL Section */}
+            <div ref={nl2SqlSectionRef} className={`space-y-3 rounded-lg bg-gradient-to-br from-slate-50 to-slate-100 p-4 border-2 ${activeMode === "ask" ? "border-[#3557e6]" : "border-slate-200"}` }>
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-lg bg-brand-100 flex items-center justify-center">
+                  <span className="text-sm font-semibold text-brand-700">📊</span>
+                </div>
+                <p className="text-sm font-semibold text-slate-900">NL2SQL Query</p>
+              </div>
               <textarea
+                ref={nl2sqlQuestionRef}
                 value={nl2sqlQuestion}
                 onChange={(event) => setNl2sqlQuestion(event.target.value)}
                 rows={2}
-                placeholder="Ask database question"
-                className="w-full resize-none rounded border border-slate-300 px-2 py-1 text-sm"
+                placeholder="Ask your database..."
+                className="w-full resize-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-brand-400 focus:ring-2 focus:ring-brand-100 outline-none transition"
               />
               <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={() => void handleLoadNl2SqlSchema()}
                   disabled={nl2sqlBusy}
-                  className="rounded border border-slate-300 px-2 py-1 text-xs"
+                  className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60 transition-colors"
                 >
                   Load Schema
                 </button>
@@ -569,22 +744,28 @@ function ChatPage() {
                   type="button"
                   onClick={() => void handleQueryNl2Sql()}
                   disabled={nl2sqlBusy || !nl2sqlQuestion.trim()}
-                  className="rounded bg-slate-900 px-2 py-1 text-xs text-white disabled:opacity-60"
+                  className="flex-1 rounded-lg border border-[#1f318a] bg-[#3557e6] px-3 py-2 text-xs font-medium text-white hover:bg-[#2a42b8] disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-600 disabled:cursor-not-allowed transition-colors shadow-sm"
                 >
-                  Run NL2SQL
+                  Run Query
                 </button>
               </div>
               {nl2sqlSchemaText ? (
-                <pre className="max-h-24 overflow-auto rounded border border-slate-200 bg-slate-50 p-2 text-[11px]">
+                <pre className="max-h-20 overflow-auto rounded-lg border border-slate-300 bg-white p-2 text-[10px] text-slate-700">
                   {nl2sqlSchemaText}
                 </pre>
               ) : null}
             </div>
 
-            <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Excel / GSheet QA</p>
-              <label className="block cursor-pointer rounded border border-slate-300 px-2 py-1 text-xs">
-                Upload Excel
+            {/* Excel/GSheet Section */}
+            <div ref={tabularSectionRef} className={`space-y-3 rounded-lg bg-gradient-to-br from-slate-50 to-slate-100 p-4 border-2 ${activeMode === "analyze" ? "border-[#3557e6]" : "border-slate-200"}`}>
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-lg bg-brand-100 flex items-center justify-center">
+                  <span className="text-sm font-semibold text-brand-700">📈</span>
+                </div>
+                <p className="text-sm font-semibold text-slate-900">Tabular Data</p>
+              </div>
+              <label className="block cursor-pointer rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 text-center transition-colors">
+                📁 Upload Excel
                 <input
                   type="file"
                   accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
@@ -602,54 +783,80 @@ function ChatPage() {
               <input
                 value={gsheetUrl}
                 onChange={(event) => setGsheetUrl(event.target.value)}
-                placeholder="Google Sheet URL or key"
-                className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
+                placeholder="Google Sheet URL or ID"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-brand-400 focus:ring-2 focus:ring-brand-100 outline-none transition"
               />
               <input
                 value={gsheetWorksheet}
                 onChange={(event) => setGsheetWorksheet(event.target.value)}
-                placeholder="Worksheet (optional)"
-                className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
+                placeholder="Sheet name (optional)"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-brand-400 focus:ring-2 focus:ring-brand-100 outline-none transition"
               />
               <button
                 type="button"
                 onClick={() => void handleUploadTabularGsheet()}
                 disabled={tabularBusy || !gsheetUrl.trim()}
-                className="rounded border border-slate-300 px-2 py-1 text-xs"
+                className="w-full rounded-lg border border-[#1f318a] bg-[#3557e6] px-4 py-2.5 text-xs font-semibold text-white shadow-md hover:bg-[#2a42b8] disabled:border-slate-300 disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed transition-colors"
               >
-                Load GSheet
+                {tabularBusy ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+                    Loading Sheet...
+                  </span>
+                ) : (
+                  "📥 Load GSheet"
+                )}
               </button>
+              {tabularSuccess ? (
+                <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2.5 text-xs text-green-700 font-medium">
+                  {tabularSuccess}
+                </div>
+              ) : null}
+              {tabularError ? (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-700">
+                  <p className="font-semibold mb-1">⚠️ Failed to load sheet</p>
+                  <p>{tabularError}</p>
+                  <p className="mt-1 text-red-500">Make sure the sheet is shared with: <span className="font-mono font-semibold break-all">amzurchatbot@chatbot-495005.iam.gserviceaccount.com</span></p>
+                </div>
+              ) : null}
               <textarea
+                ref={tabularQuestionRef}
                 value={tabularQuestion}
                 onChange={(event) => setTabularQuestion(event.target.value)}
                 rows={2}
-                placeholder="Ask tabular question"
-                className="w-full resize-none rounded border border-slate-300 px-2 py-1 text-sm"
+                placeholder="Ask about the data..."
+                className="w-full resize-none rounded-lg border-2 border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-900 placeholder-slate-600 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100 transition shadow-md"
               />
               <button
                 type="button"
                 onClick={() => void handleQueryTabular()}
                 disabled={tabularBusy || !tabularQuestion.trim() || tabularDocumentIds.length === 0}
-                className="rounded bg-slate-900 px-2 py-1 text-xs text-white disabled:opacity-60"
+                className="w-full rounded-lg border border-[#1f318a] bg-[#3557e6] px-3 py-2 text-xs font-semibold text-white hover:bg-[#2a42b8] disabled:border-slate-300 disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed transition-colors shadow-md"
               >
-                Query Tabular
+                {tabularBusy ? "Querying..." : "🔍 Query Data"}
               </button>
               {tabularDocumentIds.length ? (
-                <p className="text-[11px] text-slate-500">Loaded datasets: {tabularDocumentIds.length}</p>
+                <p className="text-[11px] text-slate-600">📊 {tabularDocumentIds.length} dataset(s) loaded</p>
               ) : null}
             </div>
 
-            <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Image Rule Validation</p>
+            {/* Image Rules Section */}
+            <div ref={imageRulesSectionRef} className={`space-y-3 rounded-lg bg-gradient-to-br from-slate-50 to-slate-100 p-4 border-2 ${activeMode === "image" ? "border-[#3557e6]" : "border-slate-200"}`}>
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-lg bg-brand-100 flex items-center justify-center">
+                  <span className="text-sm font-semibold text-brand-700">🖼️</span>
+                </div>
+                <p className="text-sm font-semibold text-slate-900">Image Validation</p>
+              </div>
               <textarea
                 value={rulesText}
                 onChange={(event) => setRulesText(event.target.value)}
-                rows={3}
-                placeholder={'Rules (JSON list or lines)\nex: ["Total <= 100", "Invoice number exists"]'}
-                className="w-full resize-none rounded border border-slate-300 px-2 py-1 text-sm"
+                rows={2}
+                placeholder="Define validation rules..."
+                className="w-full resize-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-brand-400 focus:ring-2 focus:ring-brand-100 outline-none transition"
               />
-              <label className="block cursor-pointer rounded border border-slate-300 px-2 py-1 text-xs">
-                Upload Image and Validate
+              <label className="block cursor-pointer rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 text-center transition-colors">
+                🖼️ Upload Image
                 <input
                   type="file"
                   accept="image/*"
@@ -664,25 +871,148 @@ function ChatPage() {
                   }}
                 />
               </label>
-              <p className="text-[11px] text-slate-500">
-                Uses multimodal LLM and returns per-rule pass/fail with evidence.
-              </p>
             </div>
           </div>
+        </aside>
 
+        <div
+          className={`${mobilePanel === "none" ? "flex" : "hidden"} min-w-0 flex-1 flex-col gap-4 overflow-hidden rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:flex md:p-5 lg:p-6`}
+        >
+          {!onboardingChecklist.hidden ? (
+            <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Onboarding Checklist</p>
+                <button
+                  type="button"
+                  onClick={() => setOnboardingChecklist((prev) => ({ ...prev, hidden: true }))}
+                  className="text-xs font-medium text-slate-500 hover:text-slate-700"
+                >
+                  Hide
+                </button>
+              </div>
+              <div className="grid gap-1 text-xs text-slate-700 md:grid-cols-3">
+                <p>{onboardingChecklist.loadedData ? "✅" : "⬜"} Load a data source</p>
+                <p>{onboardingChecklist.askedQuestion ? "✅" : "⬜"} Ask first question</p>
+                <p>{onboardingChecklist.receivedAnswer ? "✅" : "⬜"} Receive first answer</p>
+              </div>
+            </div>
+          ) : null}
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-700">
+            <span className="font-semibold text-slate-900">Guided Flow:</span> {nextStepHint}
+          </div>
+          <MessageList
+            messages={messages}
+            hasMoreHistory={hasMoreHistory}
+            loadingOlder={loadingOlderHistory}
+            onLoadOlder={() => {
+              void loadOlderHistory();
+            }}
+          />
           {ragDocumentIds.length > 0 ? (
-            <p className="mb-2 text-xs text-slate-600">
-              RAG mode active with {ragDocumentIds.length} document(s). Your next text messages query uploaded PDFs.
-            </p>
+            <div className="rounded-lg border border-brand-200 bg-brand-50 px-4 py-3 text-xs font-medium text-brand-900">
+              📄 RAG Mode Active: {ragDocumentIds.length} document(s) uploaded
+            </div>
           ) : null}
           <InputBar
             onSend={handleSend}
             onGenerateImage={handleGenerateImage}
             onUploadRagPdf={handleUploadRagPdf}
             isSending={isSending}
+            focusSignal={composerFocusSignal}
           />
-          {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
+          {error ? (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+              ⚠️ {error}
+            </div>
+          ) : null}
         </div>
+
+        <aside
+          className={`${mobilePanel === "threads" ? "flex" : "hidden"} w-full shrink-0 flex-col gap-4 overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:hidden xl:flex xl:w-80 xl:p-5`}
+        >
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-slate-900">Conversations</h2>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDraftMode(false);
+                  setSelectedThreadId(null);
+                  setError("");
+                }}
+                className={`rounded-lg px-2 py-1 text-xs font-medium transition-colors ${
+                  !isDraftMode && selectedThreadId === null
+                    ? "bg-brand-600 text-white"
+                    : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDraftMode(true);
+                  setSelectedThreadId(null);
+                  setMessages([]);
+                  setError("");
+                }}
+                className={`rounded-lg px-2 py-1 text-xs font-medium transition-colors ${
+                  isDraftMode
+                    ? "bg-brand-600 text-white"
+                    : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                New
+              </button>
+            </div>
+          </div>
+          <div className="space-y-2">
+            {threadsQuery.data?.threads.map((thread) => (
+              <div
+                key={thread.id}
+                className={`w-full rounded-lg border p-3 text-left transition-all ${
+                  selectedThreadId === thread.id
+                    ? "border-brand-500 bg-brand-50 shadow-sm"
+                    : "border-slate-200 bg-white hover:bg-slate-50"
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsDraftMode(false);
+                    setSelectedThreadId(thread.id);
+                  }}
+                  className="w-full text-left"
+                >
+                  <p className={`text-sm font-medium ${selectedThreadId === thread.id ? "text-brand-900" : "text-slate-900"}`}>
+                    {thread.title}
+                  </p>
+                  {thread.last_message ? (
+                    <p className={`mt-1 line-clamp-2 text-xs ${selectedThreadId === thread.id ? "text-brand-700" : "text-slate-600"}`}>
+                      {thread.last_message}
+                    </p>
+                  ) : null}
+                </button>
+                <div className="mt-2 flex items-center justify-end gap-1 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => void handleRenameThread(thread.id, thread.title)}
+                    className="rounded px-2 py-1 text-slate-600 hover:bg-slate-100 transition-colors"
+                  >
+                    ✏️
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleDeleteThread(thread.id)}
+                    className="rounded px-2 py-1 text-red-600 hover:bg-red-50 transition-colors"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </aside>
       </section>
     </main>
   );

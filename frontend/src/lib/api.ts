@@ -48,9 +48,23 @@ export async function getChatThreads(): Promise<ChatThreadsResponse> {
   return response.data;
 }
 
-export async function getHistory(threadId?: string | null): Promise<ChatHistoryResponse> {
+export async function getHistory(
+  threadId?: string | null,
+  pagination?: { offset?: number; limit?: number },
+): Promise<ChatHistoryResponse> {
+  const params: { thread_id?: string; offset?: number; limit?: number } = {};
+  if (threadId) {
+    params.thread_id = threadId;
+  }
+  if (pagination?.offset !== undefined) {
+    params.offset = pagination.offset;
+  }
+  if (pagination?.limit !== undefined) {
+    params.limit = pagination.limit;
+  }
+
   const response = await apiClient.get<ChatHistoryResponse>("/api/chat/history", {
-    params: threadId ? { thread_id: threadId } : undefined,
+    params,
   });
   return response.data;
 }

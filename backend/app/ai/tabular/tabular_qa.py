@@ -416,8 +416,12 @@ async def answer_tabular_question(
             "history": memory,
             "message": normalized_question,
             "attachment_context": (
-                "Tabular context from uploaded spreadsheets and Google Sheets "
-                "(any [VERIFIED PYTHON COUNT] values are exact — use them as-is):\n" + context
+                "IMPORTANT: The user has uploaded data (spreadsheet/Google Sheet). "
+                "You MUST answer the question using ONLY the data provided below. "
+                "Do NOT say you lack access — the data is right here. "
+                "If the answer cannot be derived from this data, say so clearly.\n\n"
+                "Tabular data (any [VERIFIED PYTHON COUNT] values are exact — use them as-is):\n"
+                + context
             ),
         },
         config={"metadata": {"user_email": current_user.email, "tabular_qa": True}},

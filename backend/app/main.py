@@ -11,6 +11,7 @@ from app.api import (
     image_rules_router,
     nl2sql_router,
     rag_router,
+    research_router,
     tabular_router,
 )
 from app.core.config import ROOT_DIR, settings
@@ -53,6 +54,7 @@ app.include_router(chat_router)
 app.include_router(image_rules_router)
 app.include_router(nl2sql_router)
 app.include_router(rag_router)
+app.include_router(research_router)
 app.include_router(tabular_router)
 app.mount("/uploads", StaticFiles(directory=str(_resolved_upload_dir())), name="uploads")
 

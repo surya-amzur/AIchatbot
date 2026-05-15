@@ -119,8 +119,12 @@ export type ImageRuleValidationResponse = {
 };
 
 export type ChatHistoryResponse = {
-	thread_id: string;
+	thread_id: string | null;
 	messages: Message[];
+	total_count: number;
+	offset: number;
+	limit: number | null;
+	has_more: boolean;
 };
 
 export type ChatThreadSummary = {

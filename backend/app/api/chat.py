@@ -27,6 +27,7 @@ from app.services.chat_service import (
     ChatServiceError,
     ThreadNotFoundError,
     generate_image_for_prompt,
+    get_thread_messages_page,
     delete_user_thread,
     get_thread_messages,
     get_user_messages_flat,
@@ -90,16 +91,49 @@ async def get_chat_threads(
 @router.get("/history", response_model=ChatHistoryResponse)
 async def get_chat_history(
     thread_id: uuid.UUID | None = Query(default=None),
+    offset: int = Query(default=0, ge=0),
+    limit: int | None = Query(default=None, ge=1, le=200),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ChatHistoryResponse:
     if thread_id is None:
         messages = await get_user_messages_flat(db, current_user.id)
-        return ChatHistoryResponse(messages=messages)
+        total_count = len(messages)
+        if limit is not None:
+            end = max(0, total_count - offset)
+            start = max(0, end - limit)
+            paged = messages[start:end]
+            has_more = start > 0
+            return ChatHistoryResponse(
+                messages=paged,
+                total_count=total_count,
+                offset=offset,
+                limit=limit,
+                has_more=has_more,
+            )
+        return ChatHistoryResponse(messages=messages, total_count=total_count)
 
     try:
+        if limit is not None:
+            messages, total_count = await get_thread_messages_page(
+                db=db,
+                user_id=current_user.id,
+                thread_id=thread_id,
+                offset=offset,
+                limit=limit,
+            )
+            has_more = (offset + len(messages)) < total_count
+            return ChatHistoryResponse(
+                thread_id=thread_id,
+                messages=messages,
+                total_count=total_count,
+                offset=offset,
+                limit=limit,
+                has_more=has_more,
+            )
+
         messages = await get_thread_messages(db, current_user.id, thread_id)
-        return ChatHistoryResponse(thread_id=thread_id, messages=messages)
+        return ChatHistoryResponse(thread_id=thread_id, messages=messages, total_count=len(messages))
     except ThreadNotFoundError as exc:
         raise HTTPException(
             status_code=404,

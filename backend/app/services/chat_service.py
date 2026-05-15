@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 from langchain_core.messages import AIMessage, HumanMessage
 from pypdf import PdfReader
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -91,6 +91,41 @@ async def get_thread_messages(
         .order_by(Message.created_at.asc())
     )
     return list(result.scalars().all())
+
+
+async def get_thread_messages_page(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    thread_id: uuid.UUID,
+    offset: int,
+    limit: int,
+) -> tuple[list[Message], int]:
+    thread = await get_user_thread(db, user_id, thread_id)
+    if not thread:
+        raise ThreadNotFoundError("Chat thread not found.")
+
+    total_result = await db.execute(
+        select(func.count(Message.id)).where(
+            Message.user_id == user_id,
+            Message.thread_id == thread_id,
+        )
+    )
+    total_count = int(total_result.scalar_one() or 0)
+
+    result = await db.execute(
+        select(Message)
+        .where(
+            Message.user_id == user_id,
+            Message.thread_id == thread_id,
+        )
+        .order_by(Message.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    # Query newest-first for efficient paging, then restore chronological order.
+    messages = list(result.scalars().all())
+    messages.reverse()
+    return messages, total_count
 
 
 async def get_user_thread(

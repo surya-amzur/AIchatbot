@@ -27,6 +27,10 @@ class MessageOut(BaseModel):
 class ChatHistoryResponse(BaseModel):
     thread_id: uuid.UUID | None = None
     messages: list[MessageOut]
+    total_count: int = 0
+    offset: int = 0
+    limit: int | None = None
+    has_more: bool = False
 
 
 class ThreadSummary(BaseModel):

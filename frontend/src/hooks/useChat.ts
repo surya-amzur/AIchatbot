@@ -17,7 +17,7 @@ export function useChatThreadsQuery() {
 export function useChatHistoryQuery(threadId: string | null) {
   return useQuery({
     queryKey: ["chat", "history", threadId],
-    queryFn: () => getHistory(threadId),
+    queryFn: () => getHistory(threadId, { offset: 0, limit: 30 }),
     staleTime: 5000,
   });
 }

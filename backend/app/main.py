@@ -14,6 +14,7 @@ from app.api import (
     research_router,
     tabular_router,
     tictactoe_router,
+    uploads_router,
 )
 from app.core.config import ROOT_DIR, settings
 from app.db.session import init_db
@@ -58,6 +59,7 @@ app.include_router(rag_router)
 app.include_router(research_router)
 app.include_router(tabular_router)
 app.include_router(tictactoe_router)
+app.include_router(uploads_router)
 app.mount("/uploads", StaticFiles(directory=str(_resolved_upload_dir())), name="uploads")
 
 

@@ -45,6 +45,7 @@ function AppShell({ title, subtitle, children, tabs = [], actions }: AppShellPro
     { to: "/chat", label: "Workspace" },
     { to: "/research", label: "Agents" },
     { to: "/tictactoe", label: "Tic" },
+    { to: "/gallery", label: "Gallery" },
   ];
 
   return (

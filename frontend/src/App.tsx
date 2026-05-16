@@ -4,6 +4,7 @@ import LoginPage from "./pages/LoginPage.tsx";
 import ChatPage from "./pages/ChatPage.tsx";
 import ResearchPage from "./pages/ResearchPage.tsx";
 import TicTacToePage from "./pages/TicTacToePage.tsx";
+import GalleryPage from "./pages/GalleryPage.tsx";
 import ProtectedRoute from "./components/auth/ProtectedRoute.tsx";
 
 function App() {
@@ -32,6 +33,14 @@ function App() {
           element={
             <ProtectedRoute>
               <TicTacToePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/gallery"
+          element={
+            <ProtectedRoute>
+              <GalleryPage />
             </ProtectedRoute>
           }
         />

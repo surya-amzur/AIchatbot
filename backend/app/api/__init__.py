@@ -6,6 +6,7 @@ from app.api.rag import router as rag_router
 from app.api.research import router as research_router
 from app.api.tabular import router as tabular_router
 from app.api.tictactoe import router as tictactoe_router
+from app.api.uploads import router as uploads_router
 
 __all__ = [
 	"auth_router",
@@ -16,4 +17,5 @@ __all__ = [
 	"research_router",
 	"tabular_router",
 	"tictactoe_router",
+	"uploads_router",
 ]

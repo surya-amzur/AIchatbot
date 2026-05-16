@@ -117,6 +117,17 @@ function ChatPage() {
       void threadsQuery.refetch();
     }
   };
+  
+  // Scroll loading for left panel (navigator/tools)
+  const toolsPanelRef = useRef<HTMLDivElement | null>(null);
+  const handleToolsPanelScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const container = e.currentTarget;
+    const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+    if (isAtBottom) {
+      // Could add pagination here if needed
+      // For now, this enables smooth infinite scroll experience
+    }
+  };
   const nl2sqlQuestionRef = useRef<HTMLTextAreaElement | null>(null);
   const tabularQuestionRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -666,12 +677,14 @@ function ChatPage() {
         </div>
       }
     >
-      <section className="flex flex-1 flex-col gap-2 overflow-hidden md:flex-row md:gap-3">
+      <section className="flex flex-1 flex-col gap-2 overflow-hidden md:flex-row md:gap-3 h-[calc(100vh-var(--header-height,64px))]">
         <aside
-          className={`${mobilePanel === "tools" ? "flex" : "hidden"} w-full shrink-0 flex-col gap-2 overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-2 shadow-[var(--shadow-soft)] md:flex md:w-80 md:gap-3 md:p-3`}
+          ref={toolsPanelRef}
+          onScroll={handleToolsPanelScroll}
+          className={`${mobilePanel === "tools" ? "flex" : "hidden"} w-full shrink-0 flex-col gap-2 overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-2 shadow-[var(--shadow-soft)] md:flex md:w-80 md:gap-3 md:p-3 md:max-h-[calc(100vh-80px)] md:overflow-y-auto`
         >
           <div className="flex flex-col gap-2">
-            <div className="space-y-1 rounded-lg border border-slate-200 bg-white p-2">
+            <div className="sticky top-0 z-20 space-y-1 rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Navigator</p>
               <div className="grid grid-cols-3 gap-1">
                 <button
@@ -860,7 +873,7 @@ function ChatPage() {
         </aside>
 
         <div
-          className={`${mobilePanel === "none" ? "flex" : "hidden"} min-w-0 flex-1 flex-col gap-2 overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-2 shadow-[var(--shadow-soft)] md:flex md:gap-2 md:p-3 lg:p-3`}
+          className={`${mobilePanel === "none" ? "flex" : "hidden"} min-w-0 min-h-0 flex-1 flex-col gap-2 overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-2 shadow-[var(--shadow-soft)] md:flex md:gap-2 md:p-3 lg:p-3`}
         >
           {!onboardingChecklist.hidden ? (
             <div className="rounded-lg border border-slate-200 bg-white px-2 py-1">
@@ -914,9 +927,9 @@ function ChatPage() {
         <aside
           ref={threadsContainerRef}
           onScroll={handleThreadsScroll}
-          className={`${mobilePanel === "threads" ? "flex" : "hidden"} w-full shrink-0 flex-col gap-2 overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-2 shadow-[var(--shadow-soft)] md:hidden xl:flex xl:w-80 xl:gap-3 xl:p-3`}
+          className={`${mobilePanel === "threads" ? "flex" : "hidden"} w-full shrink-0 flex-col gap-2 overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-2 shadow-[var(--shadow-soft)] md:hidden xl:flex xl:w-80 xl:gap-3 xl:p-3 xl:max-h-[calc(100vh-80px)]`
         >
-          <div className="mb-1 flex items-center justify-between gap-1">
+          <div className="sticky top-0 z-20 mb-1 flex items-center justify-between gap-1 -mx-1 -mt-1 px-3 py-2 bg-[var(--color-surface)] border-b border-[var(--color-border)] rounded-t-lg">
             <h2 className="text-xs font-semibold text-slate-900">Conversations</h2>
             <div className="flex items-center gap-0.5">
               <button

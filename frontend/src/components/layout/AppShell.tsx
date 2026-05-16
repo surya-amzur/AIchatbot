@@ -95,38 +95,41 @@ function AppShell({ title, subtitle, children, tabs = [], actions }: AppShellPro
           <Button type="button" size="sm" variant="ghost" onClick={switchTheme}>
             {theme === "dark" ? "☀️" : "🌙"}
           </Button>
+
+          {/* Right side: Title and Tabs section - moved to top-right */}
+          {title ? (
+            <div className="hidden md:flex items-center gap-2 ml-2">
+              <div className="flex flex-col gap-0">
+                <h1 className="text-xs font-semibold leading-tight text-right">{title}</h1>
+                {subtitle ? (
+                  <p className="text-[9px] leading-tight text-[var(--color-text-secondary)] text-right">{subtitle}</p>
+                ) : null}
+              </div>
+              {tabs.length > 0 ? (
+                <div className="flex flex-nowrap gap-0.5 ml-2 pl-2 border-l border-[var(--color-border)]" role="tablist" aria-label="Section modes">
+                  {tabs.map((tab) => (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      onClick={tab.onClick}
+                      role="tab"
+                      aria-selected={Boolean(tab.active)}
+                      className={`rounded-lg px-2 py-0.5 text-xs font-medium transition-colors whitespace-nowrap ${
+                        tab.active
+                          ? "bg-[var(--color-primary-600)] text-white"
+                          : "bg-[var(--color-surface-soft)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           {actions}
         </div>
-
-        {/* Title and tabs section - only show on chat page */}
-        {title ? (
-          <div className="mx-auto flex max-w-[1600px] flex-col gap-1 px-3 pb-1 pt-1 md:px-6">
-            <div>
-              <h1 className="text-sm font-semibold leading-tight">{title}</h1>
-              {subtitle ? <p className="text-[10px] leading-tight text-[var(--color-text-secondary)]">{subtitle}</p> : null}
-            </div>
-            {tabs.length > 0 ? (
-              <div className="flex flex-wrap gap-0.5" role="tablist" aria-label="Section modes">
-                {tabs.map((tab) => (
-                  <button
-                    key={tab.key}
-                    type="button"
-                    onClick={tab.onClick}
-                    role="tab"
-                    aria-selected={Boolean(tab.active)}
-                    className={`rounded-lg px-2 py-0.5 text-xs font-medium transition-colors ${
-                      tab.active
-                        ? "bg-[var(--color-primary-600)] text-white"
-                        : "bg-[var(--color-surface-soft)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
       </header>
 
       <div className="mx-auto max-w-[1600px] px-3 py-2 md:px-6 md:py-3">{children}</div>

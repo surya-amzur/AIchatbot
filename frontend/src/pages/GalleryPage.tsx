@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import AppShell from "../components/layout/AppShell";
+import { apiClient } from "../lib/api";
 
 type FileItem = {
   name: string;
@@ -21,20 +22,8 @@ function GalleryPage() {
   const fetchFiles = async () => {
     try {
       setLoading(true);
-      // Fetch the list of uploaded files from backend
-      const response = await fetch("/api/uploads/list", {
-        credentials: "include",
-      });
-      
-      if (!response.ok) {
-        console.error("API Error:", response.status, response.statusText);
-        const text = await response.text();
-        console.error("Response body:", text.substring(0, 200));
-        setLoading(false);
-        return;
-      }
-      
-      const data = await response.json();
+      const response = await apiClient.get("/api/uploads/list");
+      const data = response.data;
       const parsedFiles = (data.files || []).map((file: string) => {
         // Extract filename after UUID prefix (if present)
         // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx_filename

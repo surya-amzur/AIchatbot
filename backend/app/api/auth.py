@@ -134,7 +134,15 @@ async def google_login(
             status_code=403,
             detail={"error": "domain_not_allowed", "message": str(exc)},
         ) from exc
-    except (GoogleAuthError, ValueError) as exc:
+    except GoogleAuthError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "google_verification_unavailable",
+                "message": "Google token verification is temporarily unavailable. Please try again.",
+            },
+        ) from exc
+    except ValueError as exc:
         raise HTTPException(
             status_code=401,
             detail={"error": "invalid_google_token", "message": str(exc)},

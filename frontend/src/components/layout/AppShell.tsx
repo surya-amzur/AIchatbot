@@ -52,57 +52,14 @@ function AppShell({ title, subtitle, children, tabs = [], actions }: AppShellPro
       <header className="sticky top-0 z-40 border-b border-[var(--color-border)] bg-[var(--color-surface)]/95 backdrop-blur supports-[backdrop-filter]:bg-[var(--color-surface)]/80">
         {/* Top navigation bar */}
         <div className="mx-auto flex h-12 max-w-[1600px] items-center gap-2 px-3 md:gap-3 md:px-6">
-          <button
-            type="button"
-            onClick={() => navigate("/chat")}
-            className="hidden h-8 w-8 items-center justify-center rounded-lg bg-[var(--color-primary-600)] text-xs font-bold text-white sm:flex"
-            aria-label="Go to workspace"
-          >
-            A
-          </button>
 
-          <nav className="hidden items-center gap-0.5 md:flex" aria-label="Primary">
-            {navItems.map((item) => {
-              const active = location.pathname.startsWith(item.to);
-              return (
-                <Link
-                  key={item.to}
-                  to={item.to}
-                  className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                    active
-                      ? "bg-[var(--color-primary-100)] text-[var(--color-primary-700)]"
-                      : "text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-soft)] hover:text-[var(--color-text-primary)]"
-                  }`}
-                >
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
-
-          <div className="relative ml-auto hidden w-full max-w-xs 2xl:block">
-            <input
-              ref={searchRef}
-              type="search"
-              placeholder="Search threads, papers, datasets..."
-              className="h-8 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-soft)] px-2.5 pr-14 text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] outline-none focus:border-[var(--color-primary-500)] focus:ring-2 focus:ring-[var(--color-primary-200)] transition"
-            />
-            <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 rounded border border-[var(--color-border)] px-1 py-0.5 text-[9px] text-[var(--color-text-muted)] font-medium">
-              Ctrl+K
-            </span>
-          </div>
-
-          <Button type="button" size="sm" variant="ghost" onClick={switchTheme}>
-            {theme === "dark" ? "☀️" : "🌙"}
-          </Button>
-
-          {/* Right side: Title and Tabs section - moved to top-right */}
+          {/* Title + subtitle + tabs — left side */}
           {title ? (
-            <div className="hidden md:flex items-center gap-2 ml-2">
+            <div className="hidden md:flex items-center gap-2 shrink-0">
               <div className="flex flex-col gap-0">
-                <h1 className="text-xs font-semibold leading-tight text-right">{title}</h1>
+                <h1 className="text-xs font-semibold leading-tight">{title}</h1>
                 {subtitle ? (
-                  <p className="text-[9px] leading-tight text-[var(--color-text-secondary)] text-right">{subtitle}</p>
+                  <p className="text-[9px] leading-tight text-[var(--color-text-secondary)]">{subtitle}</p>
                 ) : null}
               </div>
               {tabs.length > 0 ? (
@@ -127,6 +84,44 @@ function AppShell({ title, subtitle, children, tabs = [], actions }: AppShellPro
               ) : null}
             </div>
           ) : null}
+
+          <nav className="hidden items-center gap-0.5 md:flex" aria-label="Primary">
+            {navItems.map((item) => {
+              const active = location.pathname.startsWith(item.to);
+              return (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                    active
+                      ? "bg-[var(--color-primary-100)] text-[var(--color-primary-700)]"
+                      : "text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-soft)] hover:text-[var(--color-text-primary)]"
+                  }`}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
+
+          <div className="relative hidden w-full max-w-xs 2xl:block">
+            <input
+              ref={searchRef}
+              type="search"
+              placeholder="Search threads, papers, datasets..."
+              className="h-8 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-soft)] px-2.5 pr-14 text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] outline-none focus:border-[var(--color-primary-500)] focus:ring-2 focus:ring-[var(--color-primary-200)] transition"
+            />
+            <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 rounded border border-[var(--color-border)] px-1 py-0.5 text-[9px] text-[var(--color-text-muted)] font-medium">
+              Ctrl+K
+            </span>
+          </div>
+
+          {/* Spacer pushes everything after it to the right */}
+          <div className="flex-1" />
+
+          <Button type="button" size="sm" variant="ghost" onClick={switchTheme}>
+            {theme === "dark" ? "☀️" : "🌙"}
+          </Button>
 
           {actions}
         </div>

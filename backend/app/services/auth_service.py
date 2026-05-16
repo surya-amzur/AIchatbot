@@ -1,3 +1,8 @@
+import base64
+import json
+import time
+
+from google.auth.exceptions import GoogleAuthError
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from sqlalchemy import select
@@ -43,14 +48,48 @@ def _normalize_email(email: str) -> str:
     return email.strip().lower()
 
 
+def _decode_unverified_google_payload_for_dev(credential: str) -> dict:
+    """Decode JWT payload without signature verification for local development fallback."""
+    parts = credential.split(".")
+    if len(parts) != 3:
+        raise ValueError("Invalid Google credential format.")
+
+    payload_b64 = parts[1]
+    payload_b64 += "=" * (-len(payload_b64) % 4)
+    try:
+        payload_raw = base64.urlsafe_b64decode(payload_b64.encode("utf-8"))
+        payload = json.loads(payload_raw.decode("utf-8"))
+    except Exception as exc:
+        raise ValueError("Could not decode Google credential payload.") from exc
+
+    if str(payload.get("aud", "")) != settings.google_client_id:
+        raise ValueError("Google token audience mismatch.")
+
+    if payload.get("email_verified") is not True:
+        raise ValueError("Google email is not verified.")
+
+    exp = int(payload.get("exp", 0))
+    if exp <= int(time.time()):
+        raise ValueError("Google token is expired.")
+
+    return payload
+
+
 async def get_or_create_user_from_google_credential(
     db: AsyncSession, credential: str
 ) -> User:
-    token_info = id_token.verify_oauth2_token(
-        credential,
-        google_requests.Request(),
-        settings.google_client_id,
-    )
+    try:
+        token_info = id_token.verify_oauth2_token(
+            credential,
+            google_requests.Request(),
+            settings.google_client_id,
+        )
+    except GoogleAuthError:
+        # Development-only fallback when Google cert verification is unavailable locally.
+        if settings.environment.lower() == "development":
+            token_info = _decode_unverified_google_payload_for_dev(credential)
+        else:
+            raise
 
     email = _normalize_email(str(token_info.get("email", "")))
     name = str(token_info.get("name", email.split("@")[0] if email else "User")).strip()

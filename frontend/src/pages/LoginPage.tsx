@@ -103,8 +103,23 @@ function LoginPage() {
               });
               navigate("/chat", { replace: true });
             } catch (error) {
-              const message = error instanceof Error ? error.message : "Sign-in failed.";
-              setError(`Sign-in failed: ${message}`);
+              if (axios.isAxiosError(error)) {
+                const detail = error.response?.data?.detail;
+                const backendMessage =
+                  typeof detail?.message === "string"
+                    ? detail.message
+                    : typeof error.response?.data?.message === "string"
+                      ? error.response.data.message
+                      : "";
+                if (backendMessage) {
+                  setError(`Sign-in failed: ${backendMessage}`);
+                } else {
+                  setError(`Sign-in failed: HTTP ${error.response?.status ?? "error"}`);
+                }
+              } else {
+                const message = error instanceof Error ? error.message : "Sign-in failed.";
+                setError(`Sign-in failed: ${message}`);
+              }
               setIsGoogleLoading(false);
             }
           },

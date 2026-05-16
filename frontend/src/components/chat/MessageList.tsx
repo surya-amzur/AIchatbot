@@ -185,7 +185,7 @@ function MessageList({
       <div 
         ref={containerRef} 
         onScroll={handleScroll} 
-        className="flex h-full flex-col gap-5 overflow-y-auto pr-3 pt-2"
+        className="flex h-full flex-col gap-3 overflow-y-auto pr-3 pt-2"
         aria-live="polite"
         aria-label="Chat messages"
       >
@@ -208,13 +208,13 @@ function MessageList({
             key={msg.id}
             className={`message-enter ${
               msg.role === "user"
-                ? "ml-auto max-w-[85%] rounded-xl border border-[#1f318a] bg-gradient-to-r from-[#2a42b8] to-[#3557e6] px-5 py-4 text-white shadow-md"
-                : "mr-auto max-w-[85%] rounded-xl border border-[#2a2a3e] bg-[#1a1a2e] px-5 py-4 text-slate-100 shadow-md"
+                ? "ml-auto max-w-[85%] rounded-lg border border-[#1f318a] bg-gradient-to-r from-[#2a42b8] to-[#3557e6] px-3 py-2 text-white shadow-sm"
+                : "mr-auto max-w-[85%] rounded-lg border border-[#2a2a3e] bg-[#1a1a2e] px-3 py-2 text-slate-100 shadow-sm"
             }`}
           >
             {/* Header */}
-            <div className="flex items-center gap-2 mb-3">
-              <p className="text-xs font-bold uppercase tracking-wider opacity-75">
+            <div className="flex items-center gap-2 mb-1.5">
+              <p className="text-[10px] font-bold uppercase tracking-wider opacity-60">
                 {msg.role === "user" ? "👤 You" : "🤖 Assistant"}
               </p>
               {msg.confidence && msg.role === "assistant" && (
@@ -233,9 +233,9 @@ function MessageList({
                 
                 if (prevSameRoleMessages.length > 0 && prevSameRoleMessages[0].content !== currentContent) {
                   return (
-                    <div className="mb-3 rounded-lg border-l-4 border-yellow-500 bg-yellow-50 px-4 py-2 flex items-start gap-2">
-                      <span className="text-yellow-600 text-lg">⚠️</span>
-                      <p className="text-xs text-yellow-800 font-medium">
+                    <div className="mb-2 rounded border-l-2 border-yellow-500 bg-yellow-50 px-2 py-1 flex items-center gap-1.5">
+                      <span className="text-yellow-600 text-xs">⚠️</span>
+                      <p className="text-[10px] text-yellow-800 font-medium leading-tight">
                         Answer differs from previous response for similar query
                       </p>
                     </div>
@@ -251,11 +251,11 @@ function MessageList({
                 <TypingIndicator />
               </div>
             ) : (
-              <div className={`prose prose-base max-w-none ${
+              <div className={`prose prose-sm max-w-none ${
                 msg.role === "user" 
                   ? "text-white prose-invert" 
                   : "text-slate-100"
-              } prose-p:my-2 prose-pre:overflow-x-auto prose-code:rounded prose-code:px-2 prose-code:py-1 ${
+              } prose-p:my-1 prose-pre:overflow-x-auto prose-code:rounded prose-code:px-1.5 prose-code:py-0.5 ${
                 msg.role === "user" 
                   ? "prose-code:bg-[#2a42b8]" 
                   : "prose-code:bg-[#2a2a3e]"
@@ -323,7 +323,7 @@ function MessageList({
 
             {/* Source tag and Refresh button (for assistant messages) */}
             {msg.role === "assistant" && (
-              <div className="mt-4 flex items-center justify-between pt-3 border-t border-[#2a2a3e]">
+              <div className="mt-2 flex items-center justify-between pt-1.5 border-t border-[#2a2a3e]">
                 <div className="text-xs opacity-60 text-slate-300">
                   {msg.source ? (
                     <span>Source: {msg.source}</span>

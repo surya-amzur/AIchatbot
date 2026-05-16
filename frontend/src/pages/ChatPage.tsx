@@ -619,31 +619,8 @@ function ChatPage() {
     <AppShell
       title={heading}
       subtitle="Enterprise AI workspace"
-      tabs={([
-        { key: "ask", label: "Ask", active: activeMode === "ask", onClick: () => { setActiveMode("ask"); setMobilePanel("tools"); } },
-        { key: "analyze", label: "Analyze Data", active: activeMode === "analyze", onClick: () => { setActiveMode("analyze"); setMobilePanel("tools"); } },
-        { key: "image", label: "Validate Image", active: activeMode === "image", onClick: () => { setActiveMode("image"); setMobilePanel("tools"); } },
-      ] as const)}
       actions={
         <div className="flex items-center gap-2">
-          <div className="hidden items-center gap-1 md:flex">
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              onClick={() => setMobilePanel((prev) => (prev === "tools" ? "none" : "tools"))}
-            >
-              Tools
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              onClick={() => setMobilePanel((prev) => (prev === "threads" ? "none" : "threads"))}
-            >
-              Threads
-            </Button>
-          </div>
           <div className="hidden xl:block">
             <select
               onChange={(event) => {
@@ -681,7 +658,7 @@ function ChatPage() {
         <aside
           ref={toolsPanelRef}
           onScroll={handleToolsPanelScroll}
-          className={`${mobilePanel === "tools" ? "flex" : "hidden"} w-full shrink-0 flex-col gap-2 overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-2 shadow-[var(--shadow-soft)] md:flex md:w-80 md:gap-3 md:p-3 md:max-h-[calc(100vh-80px)] md:overflow-y-auto`
+          className={`${mobilePanel === "tools" ? "flex" : "hidden"} w-full shrink-0 flex-col gap-2 overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-2 shadow-[var(--shadow-soft)] md:flex md:w-80 md:gap-3 md:p-3 md:max-h-[calc(100vh-80px)] md:overflow-y-auto`}
         >
           <div className="flex flex-col gap-2">
             <div className="sticky top-0 z-20 space-y-1 rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
@@ -709,7 +686,6 @@ function ChatPage() {
                   Image
                 </button>
               </div>
-              <p className="rounded-md bg-slate-50 px-2 py-1 text-[10px] font-medium text-slate-700 leading-tight">{nextStepHint}</p>
             </div>
 
             {/* NL2SQL Section */}
@@ -894,9 +870,6 @@ function ChatPage() {
               </div>
             </div>
           ) : null}
-          <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] text-slate-700">
-            <span className="font-semibold text-slate-900">Next:</span> {nextStepHint}
-          </div>
           <MessageList
             messages={messages}
             hasMoreHistory={hasMoreHistory}
@@ -927,7 +900,7 @@ function ChatPage() {
         <aside
           ref={threadsContainerRef}
           onScroll={handleThreadsScroll}
-          className={`${mobilePanel === "threads" ? "flex" : "hidden"} w-full shrink-0 flex-col gap-2 overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-2 shadow-[var(--shadow-soft)] md:hidden xl:flex xl:w-80 xl:gap-3 xl:p-3 xl:max-h-[calc(100vh-80px)]`
+          className={`${mobilePanel === "threads" ? "flex" : "hidden"} w-full shrink-0 flex-col gap-2 overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-2 shadow-[var(--shadow-soft)] md:hidden xl:flex xl:w-80 xl:gap-3 xl:p-3 xl:max-h-[calc(100vh-80px)]`}
         >
           <div className="sticky top-0 z-20 mb-1 flex items-center justify-between gap-1 -mx-1 -mt-1 px-3 py-2 bg-[var(--color-surface)] border-b border-[var(--color-border)] rounded-t-lg">
             <h2 className="text-xs font-semibold text-slate-900">Conversations</h2>

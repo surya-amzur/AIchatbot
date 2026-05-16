@@ -53,17 +53,17 @@ body,
 /* Ensure panels scroll independently */
 .scrollable-left-panel {
   overflow-y: auto;
-  min-h-0;
+  min-height: 0;
 }
 
 .scrollable-middle-panel {
   overflow-y: auto;
-  min-h-0;
+  min-height: 0;
 }
 
 .scrollable-right-panel {
   overflow-y: auto;
-  min-h-0;
+  min-height: 0;
 }
 
 body {

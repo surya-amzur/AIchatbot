@@ -22,7 +22,9 @@ function GalleryPage() {
     try {
       setLoading(true);
       // Fetch the list of uploaded files from backend
-      const response = await fetch("/api/uploads/list");
+      const response = await fetch("/api/uploads/list", {
+        credentials: "include",
+      });
       if (response.ok) {
         const data = await response.json();
         const parsedFiles = (data.files || []).map((file: string) => ({

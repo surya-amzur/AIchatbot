@@ -25,26 +25,31 @@ function GalleryPage() {
       const response = await fetch("/api/uploads/list", {
         credentials: "include",
       });
-      if (response.ok) {
-        const data = await response.json();
-        const parsedFiles = (data.files || []).map((file: string) => {
-          // Extract filename after UUID prefix (if present)
-          // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx_filename
-          const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}_(.+)$/;
-          const match = file.match(uuidPattern);
-          const displayName = match ? match[1] : file;
-          
-          return {
-            name: displayName,
-            url: `/uploads/${file}`,
-            type: getFileType(file),
-            size: "",
-          };
-        });
-        setFiles(parsedFiles);
-      } else {
-        console.error("Failed to fetch files:", response.status, response.statusText);
+      
+      if (!response.ok) {
+        console.error("API Error:", response.status, response.statusText);
+        const text = await response.text();
+        console.error("Response body:", text.substring(0, 200));
+        setLoading(false);
+        return;
       }
+      
+      const data = await response.json();
+      const parsedFiles = (data.files || []).map((file: string) => {
+        // Extract filename after UUID prefix (if present)
+        // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx_filename
+        const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}_(.+)$/;
+        const match = file.match(uuidPattern);
+        const displayName = match ? match[1] : file;
+        
+        return {
+          name: displayName,
+          url: `/uploads/${file}`,
+          type: getFileType(file),
+          size: "",
+        };
+      });
+      setFiles(parsedFiles);
     } catch (error) {
       console.error("Failed to fetch files:", error);
     } finally {

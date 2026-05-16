@@ -6,7 +6,8 @@ from pydantic import BaseModel, field_validator
 
 from app.core.dependencies import get_current_user
 from app.models.user import User
-from app.ai.agents import create_tictactoe_agent
+# Lazy import to avoid import-time initialization
+# from app.ai.agents import create_tictactoe_agent
 
 router = APIRouter(prefix="/api/tictactoe", tags=["tictactoe"])
 
@@ -147,6 +148,76 @@ async def agent_move(
 # Project 11: ReAct Agent with LiteLLM
 # ──────────────────────────────────────────────────────────────
 
+def _compute_fast_move(board: Board) -> int | None:
+    """
+    Quick heuristic-based move computation for common scenarios.
+    Returns move position (0-8) or None if agent should decide.
+    
+    Strategy priority:
+    1. WIN: If we can win immediately, take it
+    2. BLOCK: If opponent will win next turn, block it
+    3. CENTER: If available (position 4), take it
+    4. CORNERS: Take first available corner (0,2,6,8)
+    Returns None to delegate to LLM agent for complex positions.
+    """
+    # Check for immediate win
+    for i in range(9):
+        if board[i] is None:
+            test_board = board[:]
+            test_board[i] = "O"
+            if _winner(test_board) == "O":
+                return i
+    
+    # Check for opponent win (block)
+    for i in range(9):
+        if board[i] is None:
+            test_board = board[:]
+            test_board[i] = "X"
+            if _winner(test_board) == "X":
+                return i
+    
+    # Early game: prefer center
+    if board[4] is None:
+        return 4
+    
+    # Prefer corners
+    for corner in [0, 2, 6, 8]:
+        if board[corner] is None:
+            return corner
+    
+    # For complex mid-game positions, delegate to agent
+    return None
+
+
+def _get_fast_reasoning(move: int, board: Board) -> str:
+    """Generate reasoning text for fast moves."""
+    move_names = {
+        0: "top-left corner", 1: "top edge", 2: "top-right corner",
+        3: "left edge", 4: "center", 5: "right edge",
+        6: "bottom-left corner", 7: "bottom edge", 8: "bottom-right corner",
+    }
+    location = move_names.get(move, f"position {move}")
+    
+    # Determine move reason
+    test_board = board[:]
+    test_board[move] = "O"
+    if _winner(test_board) == "O":
+        return f"✓ Strategic win: I've placed O at {location} to win the game!"
+    
+    test_board = board[:]
+    test_board[move] = "X"
+    if _winner(test_board) == "X":
+        return f"✓ Defensive block: I've blocked your winning move at {location}."
+    
+    if move == 4:
+        return f"✓ Strategic center: I've taken the center position for board control."
+    
+    if move in [0, 2, 6, 8]:
+        return f"✓ Corner strategy: I've taken the {location} for strong positioning."
+    
+    return f"I've placed O at {location}."
+
+
 _agent_executor = None
 _agent_error = None
 
@@ -156,6 +227,7 @@ def _get_agent():
     global _agent_executor, _agent_error
     if _agent_executor is None and _agent_error is None:
         try:
+            from app.ai.agents import create_tictactoe_agent
             _agent_executor = create_tictactoe_agent()
         except Exception as e:
             _agent_error = str(e)
@@ -180,6 +252,22 @@ async def agent_move_llm(
     """
     _validate_board_state(req.board)
     
+    # Fast path: Try simple heuristics first (instant response)
+    simple_move = _compute_fast_move(req.board)
+    if simple_move is not None:
+        board = req.board[:]
+        board[simple_move] = "O"
+        winner = _winner(board)
+        draw = winner is None and all(c is not None for c in board)
+        reasoning = _get_fast_reasoning(simple_move, req.board)
+        return AgentMoveResponse(
+            board=board,
+            move=simple_move,
+            winner=winner,
+            draw=draw,
+            reasoning=reasoning,
+        )
+    
     # Try to get agent executor
     try:
         executor = _get_agent()
@@ -203,12 +291,13 @@ async def agent_move_llm(
     board_desc = _describe_board(req.board)
     
     # Run agent reasoning and move selection
+    # Pass board description directly to avoid tool call overhead
     try:
         result = executor.invoke({
             "messages": [
                 (
                     "user",
-                    f"Current board state:\n{board_desc}\n\nAnalyze the board and make your optimal move.",
+                    f"Board state:\n{board_desc}\n\nLegal moves: {list(range(9)) if any(c is None for c in req.board) else []}\n\nMake your move now.",
                 )
             ],
         })

@@ -119,19 +119,14 @@ class TicTacToeGameLogic:
 
 
 # System prompt guiding agent strategy
-TICTACTOE_SYSTEM_PROMPT = """You are an expert Tic Tac Toe player. You are O, your opponent is X.
+TICTACTOE_SYSTEM_PROMPT = """You are a Tic Tac Toe player (O). Quickly analyze and move.
 
-Your strategy in priority order:
-1. **WIN:** Can you complete three O's in a row? If yes, make that move immediately.
-2. **BLOCK:** Will opponent (X) win on their next turn? If yes, block them by placing O where they would win.
-3. **CENTER:** If center (position 4) is empty, take it.
-4. **CORNERS:** Prefer corners (0, 2, 6, 8) for strategic advantage.
-5. **EDGES:** Take remaining edges (1, 3, 5, 7).
+Priority:
+1. WIN: Three in a row?
+2. BLOCK: Stop opponent's win?
+3. CENTER (4), CORNERS (0,2,6,8), EDGES (1,3,5,7).
 
-Always analyze the board carefully. Use the describe_board tool to see the current state.
-Use the make_move tool with exactly ONE position (0-8) when ready to move.
-
-Be confident and strategic. Think like a pro player.""".strip()
+Use make_move tool with position 0-8. Be direct.""".strip()
 
 
 def create_tictactoe_agent():
@@ -143,47 +138,41 @@ def create_tictactoe_agent():
             "LiteLLM not configured. Set LITELLM_PROXY_URL and LITELLM_API_KEY environment variables."
         )
     
-    # Define local tools using @tool decorator.
-    @tool
-    def validate_board(board: list) -> bool:
-        """Check if the board state is a valid Tic Tac Toe game state (must have equal X and O counts)."""
-        return TicTacToeGameLogic.validate_board(board)
-
+    # Define minimal local tools for performance
     @tool
     def get_legal_moves(board: list) -> list[int]:
-        """Get list of empty board positions where you can place your move (returns list of 0-8 indices)."""
+        """Get list of empty board positions (0-8)."""
         return TicTacToeGameLogic.get_legal_moves(board)
 
     @tool
-    def describe_board(board: list) -> str:
-        """Convert board state to human-readable ASCII format so you can analyze it properly."""
-        return TicTacToeGameLogic.describe_board(board)
-
-    @tool
     def check_winner(board: list) -> str | None:
-        """Check if anyone has won the game. Returns 'X', 'O', or None (if game ongoing/draw)."""
+        """Check winner: returns 'X', 'O', or None."""
         return TicTacToeGameLogic.check_winner(board)
 
     @tool
     def make_move(board: list, position: int) -> dict:
-        """Place your (O) move on the board at given position (0-8). Returns new board state and game status."""
+        """Place O at position (0-8). Returns board, winner, draw status."""
         result = TicTacToeGameLogic.make_move(board, position)
         return result
 
     # Initialize LLM with LiteLLM proxy using the app-wide configured model.
     llm = ChatOpenAI(
         model=settings.llm_model,
-        temperature=0.3,  # Lower temp for better strategy consistency
+        temperature=0.1,  # Very low temp for deterministic strategy
         base_url=settings.litellm_proxy_url,
         api_key=settings.litellm_api_key,
-        timeout=30,
+        timeout=15,
     )
 
-    # Create tools list
-    tools = [validate_board, get_legal_moves, describe_board, check_winner, make_move]
+    # Create tools list (only essentials - removed describe_board, validate_board)
+    tools = [get_legal_moves, check_winner, make_move]
 
     # Create ReAct agent with explicit system prompt.
-    agent_executor = create_react_agent(llm, tools, prompt=TICTACTOE_SYSTEM_PROMPT)
+    agent_executor = create_react_agent(
+        llm, 
+        tools, 
+        prompt=TICTACTOE_SYSTEM_PROMPT,
+    )
 
     return agent_executor
 

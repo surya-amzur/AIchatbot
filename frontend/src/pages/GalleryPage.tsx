@@ -27,13 +27,23 @@ function GalleryPage() {
       });
       if (response.ok) {
         const data = await response.json();
-        const parsedFiles = (data.files || []).map((file: string) => ({
-          name: file.split("_").slice(1).join("_"),
-          url: `/uploads/${file}`,
-          type: getFileType(file),
-          size: "",
-        }));
+        const parsedFiles = (data.files || []).map((file: string) => {
+          // Extract filename after UUID prefix (if present)
+          // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx_filename
+          const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}_(.+)$/;
+          const match = file.match(uuidPattern);
+          const displayName = match ? match[1] : file;
+          
+          return {
+            name: displayName,
+            url: `/uploads/${file}`,
+            type: getFileType(file),
+            size: "",
+          };
+        });
         setFiles(parsedFiles);
+      } else {
+        console.error("Failed to fetch files:", response.status, response.statusText);
       }
     } catch (error) {
       console.error("Failed to fetch files:", error);

@@ -1,14 +1,19 @@
+import json
+import logging
 from collections.abc import AsyncGenerator
 from pathlib import Path
 import re
 import uuid
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+logger = logging.getLogger(__name__)
+
 from app.core.config import ROOT_DIR, settings
 from app.core.dependencies import get_current_user
+from app.core.rate_limit import limiter
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.chat import (
@@ -142,7 +147,9 @@ async def get_chat_history(
 
 
 @router.post("/send")
+@limiter.limit("30/minute")
 async def send_chat_message(
+    request: Request,
     payload: ChatRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -158,7 +165,10 @@ async def send_chat_message(
             ):
                 yield f"data: {chunk}\n\n"
         except ThreadNotFoundError as exc:
-            yield f"data: [ERROR] {str(exc)}\n\n"
+            yield f"data: {json.dumps({'error': True, 'message': str(exc)})}\n\n"
+        except Exception as exc:
+            logger.error("Stream error for user %s: %s", current_user.id, exc, exc_info=True)
+            yield f"data: {json.dumps({'error': True, 'message': 'An error occurred. Please try again.'})}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
@@ -213,7 +223,9 @@ async def upload_attachment(
 
 
 @router.post("/generate-image", response_model=ImageGenerateResponse)
+@limiter.limit("10/minute")
 async def generate_image(
+    request: Request,
     payload: ImageGenerateRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),

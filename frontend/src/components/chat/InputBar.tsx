@@ -17,11 +17,22 @@ function InputBar({ onSend, onGenerateImage, onUploadRagPdf, isSending, focusSig
   const [files, setFiles] = useState<File[]>([]);
   const [showTooltip, setShowTooltip] = useState<"send" | "generate" | null>(null);
 
+  const autoResizeTextarea = () => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+  };
+
   useEffect(() => {
     if (focusSignal && textareaRef.current) {
       textareaRef.current.focus();
     }
   }, [focusSignal]);
+
+  useEffect(() => {
+    autoResizeTextarea();
+  }, [value]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -90,10 +101,12 @@ function InputBar({ onSend, onGenerateImage, onUploadRagPdf, isSending, focusSig
       <textarea
         ref={textareaRef}
         value={value}
-        onChange={(event) => setValue(event.target.value.slice(0, MAX_MESSAGE_LENGTH))}
+        onChange={(event) => {
+          setValue(event.target.value.slice(0, MAX_MESSAGE_LENGTH));
+        }}
         placeholder="Type your message or ask a question..."
         rows={2}
-        className="w-full resize-y min-h-[52px] max-h-40 rounded-md border border-slate-600 bg-[#1a1a2e] px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 outline-none transition"
+        className="w-full resize-none overflow-y-scroll min-h-[52px] max-h-40 rounded-md border border-slate-600 bg-[#1a1a2e] px-3 py-2 pr-1 text-xs text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 outline-none transition scrollbar-thin scrollbar-thumb-slate-500 scrollbar-track-transparent hover:scrollbar-thumb-slate-400"
       />
 
       {/* Send + Generate row */}

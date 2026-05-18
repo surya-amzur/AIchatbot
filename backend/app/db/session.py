@@ -21,7 +21,14 @@ def _build_async_db_url(url: str) -> str:
     return url
 
 
-engine = create_async_engine(_build_async_db_url(settings.database_url), future=True)
+engine = create_async_engine(
+    _build_async_db_url(settings.database_url),
+    future=True,
+    pool_pre_ping=True,
+    pool_recycle=1800,
+    pool_size=10,
+    max_overflow=20,
+)
 SessionLocal = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 
 

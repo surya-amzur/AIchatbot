@@ -661,33 +661,6 @@ function ChatPage() {
           className={`${mobilePanel === "tools" ? "flex" : "hidden"} w-full shrink-0 flex-col gap-2 overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-2 shadow-[var(--shadow-soft)] md:flex md:w-80 md:gap-3 md:p-3 md:max-h-[calc(100vh-80px)] md:overflow-y-auto`}
         >
           <div className="flex flex-col gap-2">
-            <div className="sticky top-0 z-20 space-y-1 rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Navigator</p>
-              <div className="grid grid-cols-3 gap-1">
-                <button
-                  type="button"
-                  onClick={() => scrollToSection(nl2SqlSectionRef)}
-                  className="rounded-md border border-slate-300 bg-white px-1.5 py-1 text-[10px] font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  NL2SQL
-                </button>
-                <button
-                  type="button"
-                  onClick={() => scrollToSection(tabularSectionRef)}
-                  className="rounded-md border border-slate-300 bg-white px-1.5 py-1 text-[10px] font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  Tabular
-                </button>
-                <button
-                  type="button"
-                  onClick={() => scrollToSection(imageRulesSectionRef)}
-                  className="rounded-md border border-slate-300 bg-white px-1.5 py-1 text-[10px] font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  Image
-                </button>
-              </div>
-            </div>
-
             {/* NL2SQL Section */}
             <div ref={nl2SqlSectionRef} className={`space-y-3 rounded-lg bg-gradient-to-br from-slate-50 to-slate-100 p-4 border-2 ${activeMode === "ask" ? "border-[#3557e6]" : "border-slate-200"}` }>
               <div className="flex items-center gap-2">

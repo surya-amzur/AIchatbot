@@ -1,9 +1,13 @@
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from app.api import (
     auth_router,
@@ -16,8 +20,11 @@ from app.api import (
     tictactoe_router,
     uploads_router,
 )
-from app.core.config import ROOT_DIR, settings
+from app.core.config import ROOT_DIR, settings, validate_settings
+from app.core.rate_limit import limiter
 from app.db.session import init_db
+
+logger = logging.getLogger(__name__)
 
 
 def _resolved_upload_dir() -> Path:
@@ -31,6 +38,7 @@ def _resolved_upload_dir() -> Path:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    validate_settings(settings)
     await init_db()
     _resolved_upload_dir()
     yield
@@ -42,14 +50,31 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[settings.frontend_url],
-    allow_origin_regex=r"^http://localhost:\d+$",
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Rate limiter + its 429 handler
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.error("Unhandled exception on %s: %s", request.url.path, exc, exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"error": "internal_error", "message": "An unexpected error occurred."},
+    )
+
+
+# CORS: restrict wildcard localhost regex to dev only
+cors_kwargs: dict = {
+    "allow_origins": [settings.frontend_url],
+    "allow_credentials": True,
+    "allow_methods": ["*"],
+    "allow_headers": ["*"],
+}
+if settings.environment == "development":
+    cors_kwargs["allow_origin_regex"] = r"^http://localhost:\d+$"
+
+app.add_middleware(CORSMiddleware, **cors_kwargs)
 
 app.include_router(auth_router)
 app.include_router(chat_router)

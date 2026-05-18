@@ -45,3 +45,19 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def validate_settings(s: Settings) -> None:
+    """Raise on startup if critical config is missing."""
+    missing = []
+    if not s.secret_key:
+        missing.append("SECRET_KEY")
+    if not s.database_url:
+        missing.append("DATABASE_URL")
+    if not s.litellm_proxy_url:
+        missing.append("LITELLM_PROXY_URL")
+    if missing:
+        raise RuntimeError(
+            f"Missing required environment variables: {', '.join(missing)}. "
+            "Check your .env file."
+        )

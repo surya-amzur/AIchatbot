@@ -185,7 +185,7 @@ function MessageList({
       <div 
         ref={containerRef} 
         onScroll={handleScroll} 
-        className="flex h-full flex-col gap-3 overflow-y-auto pr-3 pt-2"
+        className="flex h-full flex-col gap-3 overflow-y-scroll pr-1 pt-2 scrollbar-thin scrollbar-thumb-slate-500 scrollbar-track-transparent hover:scrollbar-thumb-slate-400"
         aria-live="polite"
         aria-label="Chat messages"
       >

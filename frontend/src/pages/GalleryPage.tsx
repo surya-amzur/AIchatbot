@@ -13,7 +13,9 @@ function GalleryPage() {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
+  const [brokenImages, setBrokenImages] = useState<Record<string, boolean>>({});
   const containerRef = useRef<HTMLDivElement>(null);
+  const uploadBaseUrl = (apiClient.defaults.baseURL ?? "").replace(/\/$/, "");
 
   useEffect(() => {
     fetchFiles();
@@ -33,7 +35,7 @@ function GalleryPage() {
         
         return {
           name: displayName,
-          url: `/uploads/${file}`,
+          url: `${uploadBaseUrl}/uploads/${encodeURIComponent(file)}`,
           type: getFileType(file),
           size: "",
         };
@@ -125,7 +127,7 @@ function GalleryPage() {
             {/* Lightbox modal */}
             {selectedFile && isImageFile(selectedFile.type) && (
               <div
-                className="fixed inset-0 z-50 bg-black bg-opacity-75 flex items-center justify-center p-4"
+                className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4"
                 onClick={() => setSelectedFile(null)}
               >
                 <div
@@ -157,20 +159,26 @@ function GalleryPage() {
                   key={file.url}
                   className="group cursor-pointer"
                   onClick={() =>
-                    isImageFile(file.type) && setSelectedFile(file)
+                    isImageFile(file.type) && !brokenImages[file.url] && setSelectedFile(file)
                   }
                 >
                   <div className="aspect-square rounded-lg border border-slate-200 bg-slate-50 overflow-hidden flex items-center justify-center hover:bg-slate-100 transition-colors relative">
-                    {file.type === "image" ? (
+                    {file.type === "image" && !brokenImages[file.url] ? (
                       <img
                         src={file.url}
                         alt={file.name}
                         className="w-full h-full object-cover group-hover:opacity-75 transition-opacity"
+                        onError={() =>
+                          setBrokenImages((prev) => ({ ...prev, [file.url]: true }))
+                        }
                       />
                     ) : (
-                      <div className="text-4xl">{getIcon(file.type)}</div>
+                      <div className="text-center">
+                        <div className="text-4xl">{getIcon(file.type)}</div>
+                        <p className="mt-1 text-[10px] font-medium text-slate-500 uppercase">{file.type}</p>
+                      </div>
                     )}
-                    <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-colors rounded-lg" />
+                    <div className="pointer-events-none absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors rounded-lg" />
                   </div>
                   <p className="text-xs text-slate-600 mt-2 truncate text-center hover:text-slate-900">
                     {file.name}
